@@ -14,6 +14,8 @@ const RATIO_MIN = 2
 const RATIO_MAX = 6
 const BURN_MIN_HOURS = 0.1
 const HOUR_MS = 3_600_000
+const CURRENCIES = ['USD', 'CAD', 'AUD', 'EUR', 'JPY', 'CNY'] as const
+const RATES_URL = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=' // European Central Bank rates, no key
 // The plain glyphs are in Cascadia, Consolas and Menlo, for terminals without a Nerd Font.
 const PHASE_GLYPHS = {
   nerd: { tool: '', idle: '' }, // nf-fa-cog, nf-fa-pause: private-use code points that most editors show as boxes
@@ -99,13 +101,18 @@ let charsPerToken = 4 // the usual English ratio, until the first response measu
 type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number; nerdFont: boolean }
 let settings: Settings = { currency: 'USD', usdRate: 1, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30, nerdFont: false }
 
+// Set once a day: the ECB publishes one rate per working day.
+let exchange: { currency: string; rate: number; date: string; fetchedOn: string } | null = null
+let exchangeTriedAt = 0
+
 function readSettings(options: PluginOptions): Settings {
+  const code = String(options.currency || 'USD').trim().toUpperCase().replace(/^RMB$/, 'CNY')
   const rate = Number(options.usdRate)
   const ttl = Number(options.cacheTtlMinutes)
   const refresh = Number(options.speedRefreshPerSecond)
   const frames = Number(options.animationFps)
   return {
-    currency: String(options.currency || 'USD').trim().toUpperCase(),
+    currency: (CURRENCIES as readonly string[]).includes(code) ? code : 'USD',
     usdRate: rate > 0 ? rate : 1,
     cacheTtlMinutes: ttl > 0 ? ttl : 60,
     refreshPerSecond: refresh > 0 ? Math.min(HINT_REDRAWS_MAX, Math.max(1, refresh)) : HINT_REDRAWS_MAX,
@@ -181,13 +188,25 @@ function duration(ms: number): string {
 
 const untilReset = (resetsAt: string) => duration(Date.parse(resetsAt) - Date.now())
 
-function money(usd: number): string {
-  const value = usd * settings.usdRate
+// usdRate stays the rate when the fetch fails or the organization's web-fetch policy refuses it.
+async function readExchange($: EngineInterface): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10)
+  if (settings.currency === 'USD' || (exchange?.currency === settings.currency && exchange.fetchedOn === today)) return
+  if (Date.now() - exchangeTriedAt < HOUR_MS) return // a failed fetch waits an hour, the clock ticks every 5 s
+  exchangeTriedAt = Date.now()
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: settings.currency, maximumFractionDigits: 2 }).format(value)
-  } catch {
-    return `${value.toFixed(2)} ${settings.currency}` // not an ISO 4217 code
-  }
+    const { ok, text } = await $.http.fetch(RATES_URL + settings.currency)
+    const body = JSON.parse(text) as { date: string; rates: Record<string, number> }
+    const rate = body.rates[settings.currency]
+    if (!ok || !rate || rate <= 0) return
+    exchange = { currency: settings.currency, rate, date: body.date, fetchedOn: today }
+    exchangeTriedAt = 0
+    redraw($)
+  } catch {}
+}
+
+function money(usd: number): string {
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: settings.currency, maximumFractionDigits: 2 }).format(usd * (exchange?.currency === settings.currency ? exchange.rate : settings.usdRate))
 }
 
 function modelLabel(id: string): string {
@@ -269,6 +288,7 @@ async function readLocation($: EngineInterface): Promise<void> {
 async function load($: EngineInterface): Promise<void> {
   loaded = true
   await readLocation($)
+  void readExchange($)
   const saved = await restore($)
   if (saved?.stats && counted(saved.stats) > counted(session.stats)) session.stats = { ...emptyStats(), ...saved.stats }
   if (saved?.limitStart) session.limitStart = { ...saved.limitStart, ...session.limitStart }
@@ -307,6 +327,7 @@ export const register: Register = (on, options) => {
       timerStarted = true
       $.clock.every(LOCATION_REFRESH_MS, () => {
         void readLocation($)
+        void readExchange($)
         if (open === 'tokens') redraw($) // the cache countdown changes with no event
       })
     }
@@ -528,6 +549,7 @@ export const register: Register = (on, options) => {
                 <Fig value={money(costUsd)} />
                 {trackedUsd !== null && hours >= BURN_MIN_HOURS && <Box><Sep /><Fig value={money(trackedUsd / hours)} unit="per active hour" /></Box>}
                 {lastTurnUsd !== null && <Box><Sep /><Text dimColor>last turn </Text><Fig value={money(lastTurnUsd)} /></Box>}
+                {exchange?.currency === settings.currency && <Box><Sep /><Text dimColor>{`ECB ${exchange.date}`}</Text></Box>}
               </Box>
             )}
           </Row>
