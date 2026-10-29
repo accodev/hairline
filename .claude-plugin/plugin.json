@@ -1,6 +1,6 @@
 {
   "name": "hairline",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "license": "MIT",
   "description": "A status line mod for Claude Code.",
   "userConfig": {
@@ -37,7 +37,7 @@
     "nerdFont": {
       "type": "boolean",
       "title": "Nerd Font icons",
-      "description": "Use Nerd Font icons for the tool and idle phases (a cog and a pause sign). Turn on only when your terminal font is a Nerd Font; off uses ↻ and ‖.",
+      "description": "Use the Nerd Font pause sign for the idle phase. Turn on only when your terminal font is a Nerd Font; off uses ‖.",
       "default": false
     }
   }
