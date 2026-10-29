@@ -592,8 +592,7 @@ export const register: Register = (on, options) => {
                     toggle($, 'tokens')
                   }}
                 >
-                  <Text inverse={open === 'tokens'}>{human(tokens)}</Text>
-                  <Text inverse={open === 'tokens'} dimColor={open !== 'tokens'}>{` tok ${open === 'tokens' ? '×' : '…'}`}</Text>
+                  <Text inverse={open === 'tokens'}>{`${human(tokens)} tok`}</Text>
                 </Button>
               </Box>
             )}
@@ -612,7 +611,6 @@ export const register: Register = (on, options) => {
                 }}
               >
                 <Text inverse={open === 'model'}>{modelLabel(model)}</Text>
-                <Text inverse={open === 'model'} dimColor={open !== 'model'}>{open === 'model' ? ' ×' : ' …'}</Text>
               </Button>
             ) : <Text>{modelLabel(model)}</Text>)}
             {model && effort && (
@@ -628,7 +626,6 @@ export const register: Register = (on, options) => {
                   }}
                 >
                   <Text inverse={open === 'effort'} color={c.effort[EFFORT_LEVELS.indexOf(effort)]} dimColor={!EFFORT_LEVELS.includes(effort)}>{effort}</Text>
-                  <Text inverse={open === 'effort'} dimColor={open !== 'effort'}>{open === 'effort' ? ' ×' : ' …'}</Text>
                 </Button>
               </Box>
             )}
