@@ -1,6 +1,7 @@
 import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 const BAR_CELLS = 16
+const MARKER_HIDDEN_FROM = 99
 const WARN_FROM = 60
 const BAD_FROM = 85
 const RESET_SHOWN_FROM = 70
@@ -445,7 +446,8 @@ export const register: Register = (on, options) => {
 
     // The desktop app draws line glyphs wider than a cell, so it gets painted boxes.
     const filled = pct === null ? 0 : filledCells(pct)
-    const markerCell = compactAt === null ? -1 : Math.min(BAR_CELLS - 1, Math.floor((compactAt / 100) * BAR_CELLS))
+    // A compaction point at the window's end adds nothing to the bar's own end.
+    const markerCell = compactAt === null || compactAt >= MARKER_HIDDEN_FROM ? -1 : Math.min(BAR_CELLS - 1, Math.floor((compactAt / 100) * BAR_CELLS))
     const cells = Array.from({ length: BAR_CELLS }, (_, i) => ({
       isFilled: i < filled,
       isMarker: i === markerCell,
@@ -454,9 +456,9 @@ export const register: Register = (on, options) => {
     const contextBar = e.surface === 'terminal' ? (
       <Box>
         {cells.map((cell, i) =>
-          cell.isMarker ? <Text key={`cell-${i}`} bold color={cell.isFilled ? cell.color : c.marker}>┃</Text>
+          cell.isMarker ? <Text key={`cell-${i}`} dimColor color={cell.isFilled ? cell.color : c.marker}>┃</Text>
           : cell.isFilled ? <Text key={`cell-${i}`} color={cell.color}>━</Text>
-          : <Text key={`cell-${i}`} dimColor>─</Text>)}
+          : <Text key={`cell-${i}`} dimColor color={cell.color}>─</Text>)}
       </Box>
     ) : (
       <Box width={BAR_CELLS} height={1} overflow="hidden">
