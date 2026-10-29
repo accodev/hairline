@@ -1,0 +1,7 @@
+{
+  "name": "hairline",
+  "owner": { "name": "accodev" },
+  "plugins": [
+    { "name": "hairline", "source": "./", "description": "One quiet line under the prompt: folder and branch, context bar, session tokens, 5h and 7d limits, model, effort and session id." }
+  ]
+}

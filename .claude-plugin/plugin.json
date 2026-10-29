@@ -1,0 +1,43 @@
+{
+  "name": "hairline",
+  "version": "0.21.0",
+  "description": "One line under the prompt: folder and branch, context bar, session tokens, 5h and 7d limits, model, effort and session id. Click the tokens for cost, cache and limit details.",
+  "userConfig": {
+    "currency": {
+      "type": "string",
+      "title": "Currency",
+      "description": "ISO 4217 code for the cost figures, for example EUR or GBP.",
+      "default": "USD"
+    },
+    "usdRate": {
+      "type": "number",
+      "title": "Rate from US dollars",
+      "description": "How much 1 US dollar is in the currency above. Keep 1 for USD.",
+      "default": 1
+    },
+    "cacheTtlMinutes": {
+      "type": "number",
+      "title": "Prompt cache lifetime (minutes)",
+      "description": "How long the prompt cache stays warm after a request: 60 or 5, as your plan uses.",
+      "default": 60
+    },
+    "speedRefreshPerSecond": {
+      "type": "number",
+      "title": "Speed refreshes per second",
+      "description": "How often the tokens-per-second figure updates while Claude streams, 1 to 30. Claude Code redraws the line at most 30 times a second. Lower values use less CPU.",
+      "default": 30
+    },
+    "animationFps": {
+      "type": "number",
+      "title": "Dot line frames per second",
+      "description": "How often the speed dot line moves while Claude streams, 1 to 60. Lower values use less CPU.",
+      "default": 30
+    },
+    "nerdFont": {
+      "type": "boolean",
+      "title": "Nerd Font icons",
+      "description": "Use Nerd Font icons for the tool and idle phases (a cog and a pause sign). Turn on only when your terminal font is a Nerd Font; off uses ↻ and ‖.",
+      "default": false
+    }
+  }
+}
