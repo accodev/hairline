@@ -25,8 +25,8 @@ Claude Code keeps them in `settings.json`, under `pluginConfigs["hairline@hairli
 
 | Option | Default | Effect |
 |---|---|---|
-| `currency` | `USD` | `USD`, `CAD`, `AUD`, `EUR`, `JPY` or `CNY` (`RMB` also works). Hairline converts at the European Central Bank rate of the day. |
-| `usdRate` | `1` | Value of 1 US dollar in that currency, used when the daily rate cannot be fetched. |
+| `currency` | `USD` | `USD`, `CAD`, `AUD`, `EUR`, `JPY` or `CNY`. |
+| `usdRate` | `1` | Value of 1 US dollar in that currency, used when the exchange rate cannot be fetched. |
 | `cacheTtlMinutes` | `60` | Prompt cache lifetime, 60 or 5 as your plan uses. |
 | `speedRefreshPerSecond` | `30` | Updates of the tokens per second figure, 1 to 30. |
 | `animationFps` | `30` | Frames per second of the speed dot line, 1 to 60. |
