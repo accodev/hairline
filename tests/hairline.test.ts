@@ -115,3 +115,28 @@ test('draws location, context, limits, model and a copyable session id', async (
   expect(await working.find({ type: 'Text', text: 'esc to interrupt' })).toBeDefined()
   expect(await working.find({ type: 'Text', text: 'market-it' })).toBeDefined()
 })
+
+test('shows cost in the chosen currency at the day\'s ECB rate', { options: { currency: 'rmb' } }, async ($, on) => {
+  mock.clock(on)
+  mock.store(on, { session: { sessionId: SESSION_ID, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } } })
+  const fetched: string[] = []
+  on('http.fetch', ($, e) => (fetched.push(e.url), { value: { status: 200, ok: true, headers: {}, text: '{"amount":1.0,"base":"USD","date":"2026-10-29","rates":{"CNY":6.6616}}' } }))
+  on('session.start', () => ({ cwd: 'C:/code/hairline' }))
+  on('session.cwd', () => ({ value: 'C:/code/hairline' }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: 'C:/code/hairline\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('session.usage', () => ({
+    value: { startedAt: Date.now(), cost: { usd: 10 }, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] },
+  }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.id', () => ({ value: SESSION_ID }))
+  on('config.list', () => ({ value: [] }))
+  on('ui.render', ($, e) => ({ type: 'Text', props: {}, children: ['hint' in e.props ? e.props.hint : ''] }))
+
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:/code/hairline' })
+  const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
+  await ui.press({ key: 'hairline-tokens' })
+  expect(fetched).toEqual(['https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY'])
+  expect(await ui.find({ type: 'Text', text: /66[.,]62/ })).toBeDefined() // 10 USD at 6.6616
+  expect(await ui.find({ type: 'Text', text: 'ECB 2026-10-29' })).toBeDefined()
+  await ui.unmount()
+})
