@@ -1,6 +1,6 @@
 {
   "name": "hairline",
-  "version": "0.21.1",
+  "version": "0.22.0",
   "license": "MIT",
   "description": "A status line mod for Claude Code.",
   "userConfig": {
