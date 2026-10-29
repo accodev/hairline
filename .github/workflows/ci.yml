@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Mods are early access: pin the Claude Code version the mod was tested on, and raise it on purpose.
+  CLAUDE_CODE_VERSION: 2.1.312
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Claude Code
+        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+      # Manifests, hooks.json and the hooks module's events and calls. No login is needed.
+      - name: Validate the plugin and its marketplace
+        run: claude plugin validate .
+
+      # tests/*.test.ts in the mod test kit. No login and no API key are needed.
+      - name: Run the mod tests
+        run: claude plugin test .
