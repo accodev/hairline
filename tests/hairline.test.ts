@@ -139,3 +139,25 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { cu
   expect(await ui.find({ type: 'Text', text: /66[.,]62/ })).toBeDefined() // 10 USD at 6.6616
   await ui.unmount()
 })
+
+test('marks the cost with a tilde when the rate cannot be fetched', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
+  mock.clock(on)
+  mock.store(on, { session: { sessionId: SESSION_ID, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } } })
+  on('http.fetch', () => ({ value: { status: 503, ok: false, headers: {}, text: '' } }))
+  on('session.start', () => ({ cwd: 'C:/code/hairline' }))
+  on('session.cwd', () => ({ value: 'C:/code/hairline' }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: 'C:/code/hairline\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('session.usage', () => ({
+    value: { startedAt: Date.now(), cost: { usd: 10 }, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] },
+  }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.id', () => ({ value: SESSION_ID }))
+  on('config.list', () => ({ value: [] }))
+  on('ui.render', ($, e) => ({ type: 'Text', props: {}, children: ['hint' in e.props ? e.props.hint : ''] }))
+
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:/code/hairline' })
+  const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
+  await ui.press({ key: 'hairline-tokens' })
+  expect(await ui.find({ type: 'Text', text: /^~.*9[.,]00/ })).toBeDefined() // 10 USD at the 0.9 setting
+  await ui.unmount()
+})
