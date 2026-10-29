@@ -1,17 +1,14 @@
 import type { ClientModule } from 'claude-code'
 
-// The output speed: a braille dot line that scrolls while Claude streams. Runs on the surface's
-// frame clock while `live`, and holds the last shape, still and dim, between replies. The hooks
-// module sends only the target and draws the number and the trend arrow itself.
+// A Client module, because hint-line redraws stop at 30 a second and the surface clock does not.
 
-const SHIFT_MS = 60 // the line moves one dot column left this often
+const SHIFT_MS = 60
 const CELLS = 6
 const SAMPLES = CELLS * 2 // a braille cell holds 2 columns of 4 dots
-// Braille dot bits, top row first: the left column, then the right.
+// Unicode added the bottom braille row last, so its bits (0x40, 0x80) break the order.
 const DOTS = [[0x01, 0x02, 0x04, 0x40], [0x08, 0x10, 0x20, 0x80]] as const
 
-// A line through the samples: each column lights its own height and the rows up to the
-// previous sample's height, so the dots join.
+// Each column also lights the rows up to the previous sample, so steep steps stay joined.
 function dotLine(samples: number[]): string {
   const top = Math.max(...samples, 1)
   const rows = samples.map(v => 3 - Math.min(3, Math.round((v / top) * 3)))
@@ -48,7 +45,6 @@ const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
       const now = surface.state!
       const shown = now.shown + (targets.get(surface)! - now.shown) * ease
       const sinceShift = now.sinceShift + frameMs
-      // The newest cell follows the eased value on every frame; the others are history.
       const isShift = sinceShift >= SHIFT_MS
       const bars = isShift ? [...now.bars.slice(1), shown] : [...now.bars.slice(0, -1), shown]
       surface.setState({ ...now, shown, bars, sinceShift: isShift ? 0 : sinceShift })

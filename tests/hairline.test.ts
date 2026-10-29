@@ -72,7 +72,6 @@ test('draws location, context, limits, model and a copyable session id', async (
     expect(effort?.props.color).toBe(surface === 'terminal' ? 'ansi256(1)' : 'warning')
     await ui.press({ key: 'hairline-session-id' })
 
-    // A click on the effort opens the level row; a pick closes it and shows the new level.
     expect(await ui.find({ key: 'hairline-effort-low' })).toBeUndefined()
     await ui.press({ key: 'hairline-effort' })
     expect(await ui.find({ key: 'hairline-effort-low' })).toBeDefined()
@@ -80,10 +79,8 @@ test('draws location, context, limits, model and a copyable session id', async (
     expect(await ui.find({ key: 'hairline-effort-low' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: surface === 'terminal' ? 'high' : 'xhigh' })).toBeDefined()
 
-    // A click on the session tokens opens the panel, a second click closes it.
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
     await ui.press({ key: 'hairline-tokens' })
-    // The open title stays inverted, as a pressed Button.
     expect((await ui.find({ type: 'Text', text: ' tok ×' }))?.props.inverse).toBe(true)
     expect(await ui.find({ type: 'Text', text: /4[.,]82/ })).toBeDefined() // cost, in the default USD
     expect(await ui.find({ type: 'Text', text: /2[.,]00/ })).toBeDefined() // $4.00 since Hairline's first reading, over 2 active hours
@@ -92,7 +89,6 @@ test('draws location, context, limits, model and a copyable session id', async (
     expect(await ui.find({ type: 'Text', text: '67%' })).toBeDefined() // main thread share
     expect(await ui.find({ type: 'Text', text: /^limits/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: ' measuring' })).toBeDefined() // under 6 minutes of readings
-    // A click on the model opens the /config choices; a pick sets the Model row.
     await ui.press({ key: 'hairline-model' })
     expect(await ui.find({ type: 'Text', text: 'opus[1m]' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined() // one panel at a time
@@ -100,7 +96,6 @@ test('draws location, context, limits, model and a copyable session id', async (
     expect(await ui.find({ key: 'hairline-model-haiku' })).toBeUndefined()
     await ui.press({ key: 'hairline-tokens' })
 
-    // Opening the effort row closes the token panel.
     await ui.press({ key: 'hairline-effort' })
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
     expect(await ui.find({ key: 'hairline-effort-low' })).toBeDefined()
@@ -111,8 +106,6 @@ test('draws location, context, limits, model and a copyable session id', async (
   expect(copied).toEqual([SESSION_ID, SESSION_ID])
   expect(modelSets).toEqual(['sonnet', 'sonnet'])
 
-  // While Claude works, the engine's own hint line stays above Hairline.
-  // A narrow line cuts the branch on one line and keeps every figure whole.
   const narrow = await $.ui.mount({ ...HINT, surface: 'terminal', viewport: { columns: 90, rows: 40 } })
   expect((await narrow.find({ type: 'Text', text: 'main' }))?.props.wrap).toBe('truncate-end')
   expect(await narrow.find({ type: 'Text', text: ' 104k/200k' })).toBeDefined()

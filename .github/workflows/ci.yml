@@ -30,10 +30,8 @@ jobs:
       - name: Install Claude Code
         run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
-      # Manifests, hooks.json and the hooks module's events and calls. No login is needed.
       - name: Validate the plugin and its marketplace
         run: claude plugin validate .
 
-      # tests/*.test.ts in the mod test kit. No login and no API key are needed.
       - name: Run the mod tests
         run: claude plugin test .

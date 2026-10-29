@@ -1,7 +1,7 @@
 {
   "name": "hairline",
   "version": "0.21.0",
-  "description": "One line under the prompt: folder and branch, context bar, session tokens, 5h and 7d limits, model, effort and session id. Click the tokens for cost, cache and limit details.",
+  "description": "A status line mod for Claude Code.",
   "userConfig": {
     "currency": {
       "type": "string",
