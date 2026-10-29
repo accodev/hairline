@@ -205,8 +205,11 @@ async function readExchange($: EngineInterface): Promise<void> {
   } catch {}
 }
 
+// The tilde marks an amount at the usdRate setting, which is only an estimate of the rate.
 function money(usd: number): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: settings.currency, maximumFractionDigits: 2 }).format(usd * (exchange?.currency === settings.currency ? exchange.rate : settings.usdRate))
+  const rate = settings.currency === 'USD' ? 1 : exchange?.currency === settings.currency ? exchange.rate : null
+  const amount = new Intl.NumberFormat(undefined, { style: 'currency', currency: settings.currency, maximumFractionDigits: 2 }).format(usd * (rate ?? settings.usdRate))
+  return rate === null ? `~${amount}` : amount
 }
 
 function modelLabel(id: string): string {
