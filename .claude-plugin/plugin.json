@@ -7,13 +7,13 @@
     "currency": {
       "type": "string",
       "title": "Currency",
-      "description": "Currency of the cost figures: USD, CAD, AUD, EUR, JPY or CNY (RMB also works). Other codes show USD. Hairline fetches the European Central Bank rate once a day.",
+      "description": "Currency of the cost figures: USD, CAD, AUD, EUR, JPY or CNY.",
       "default": "USD"
     },
     "usdRate": {
       "type": "number",
       "title": "Fallback rate from US dollars",
-      "description": "How much 1 US dollar is in the currency above. Used only when the daily rate cannot be fetched.",
+      "description": "How much 1 US dollar is in the currency above. Used only when the exchange rate cannot be fetched.",
       "default": 1
     },
     "cacheTtlMinutes": {
