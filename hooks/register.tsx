@@ -578,7 +578,6 @@ export const register: Register = (on, options) => {
               <Box>
                 <Sep />
                 <Phase />
-                {session.phase === 'sending' && context?.tokens !== undefined && <Text color={c.folder}>{`${human(context.tokens)} `}</Text>}
                 {tokensPerSecond !== null && Client && (
                   <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate) }} />
                 )}
