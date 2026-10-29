@@ -137,6 +137,5 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { cu
   await ui.press({ key: 'hairline-tokens' })
   expect(fetched).toEqual(['https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY'])
   expect(await ui.find({ type: 'Text', text: /66[.,]62/ })).toBeDefined() // 10 USD at 6.6616
-  expect(await ui.find({ type: 'Text', text: 'ECB 2026-10-29' })).toBeDefined()
   await ui.unmount()
 })

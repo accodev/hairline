@@ -102,7 +102,7 @@ type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; re
 let settings: Settings = { currency: 'USD', usdRate: 1, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30, nerdFont: false }
 
 // Set once a day: the ECB publishes one rate per working day.
-let exchange: { currency: string; rate: number; date: string; fetchedOn: string } | null = null
+let exchange: { currency: string; rate: number; fetchedOn: string } | null = null
 let exchangeTriedAt = 0
 
 function readSettings(options: PluginOptions): Settings {
@@ -196,10 +196,10 @@ async function readExchange($: EngineInterface): Promise<void> {
   exchangeTriedAt = Date.now()
   try {
     const { ok, text } = await $.http.fetch(RATES_URL + settings.currency)
-    const body = JSON.parse(text) as { date: string; rates: Record<string, number> }
+    const body = JSON.parse(text) as { rates: Record<string, number> }
     const rate = body.rates[settings.currency]
     if (!ok || !rate || rate <= 0) return
-    exchange = { currency: settings.currency, rate, date: body.date, fetchedOn: today }
+    exchange = { currency: settings.currency, rate, fetchedOn: today }
     exchangeTriedAt = 0
     redraw($)
   } catch {}
@@ -549,7 +549,6 @@ export const register: Register = (on, options) => {
                 <Fig value={money(costUsd)} />
                 {trackedUsd !== null && hours >= BURN_MIN_HOURS && <Box><Sep /><Fig value={money(trackedUsd / hours)} unit="per active hour" /></Box>}
                 {lastTurnUsd !== null && <Box><Sep /><Text dimColor>last turn </Text><Fig value={money(lastTurnUsd)} /></Box>}
-                {exchange?.currency === settings.currency && <Box><Sep /><Text dimColor>{`ECB ${exchange.date}`}</Text></Box>}
               </Box>
             )}
           </Row>
