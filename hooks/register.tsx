@@ -62,7 +62,7 @@ type Session = {
   effort: string | null
   stats: Stats
   limitStart: LimitStart
-  tokensPerSecond: number | null
+  tokensPerSecond: number
   phase: 'sending' | 'receiving' | 'tool' | 'idle'
   streaming: boolean
   context: SessionContextUsage | null
@@ -81,7 +81,7 @@ type Session = {
 
 const emptyStats = (): Stats => ({ input: 0, write: 0, read: 0, output: 0, main: 0, sub: 0, turns: 0, activeMs: 0, costStart: null })
 const emptySession = (): Session => ({
-  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: null, phase: 'idle', streaming: false,
+  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', streaming: false,
   context: null, compactAt: null, rateLimits: [], costUsd: null, lastTurn: null, lastTurnUsd: null, lastRequestAt: null, pickedEffort: null, pickBase: null, seen: { effort: null, model: null },
 })
 let session = emptySession()
@@ -357,12 +357,9 @@ export const register: Register = (on, options) => {
             redraw($)
           }
         }
-        // Only the stop chunk has real token counts. Its average replaces the window rate, which
-        // ends on the slow tail of the stream.
+        // Only the stop chunk has real token counts, so it sets the ratio for the next reply.
         if (chunk.kind === 'stop' && chunk.usage && chunk.usage.output_tokens >= RATIO_MIN_TOKENS && chars) {
           charsPerToken = Math.min(RATIO_MAX, Math.max(RATIO_MIN, chars / chunk.usage.output_tokens))
-          const secs = (now - firstChunkAt) / 1000
-          if (secs >= RATE_WARMUP_MS / 1000) session.tokensPerSecond = Math.round(chunk.usage.output_tokens / secs)
         }
         yield chunk
       }
@@ -372,6 +369,7 @@ export const register: Register = (on, options) => {
       session.phase = 'tool' // a request without a turn.complete after it runs a tool
       if (session.streaming) {
         session.streaming = false
+        session.tokensPerSecond = 0
         redraw($)
       }
     }
@@ -574,17 +572,15 @@ export const register: Register = (on, options) => {
             {contextBar}
             {pct !== null && <Text color={rampColor(c, pct, compactAt)}>{` ${Math.round(pct)}%`}</Text>}
             {context?.tokens !== undefined && <Text dimColor>{` ${human(context.tokens)}/${human(context.window)}`}</Text>}
-            {(tokensPerSecond !== null || session.phase !== 'idle') && (
-              <Box>
-                <Sep />
-                <Phase />
-                {tokensPerSecond !== null && Client && (
-                  <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate) }} />
-                )}
-                {tokensPerSecond !== null && <Text dimColor={!session.streaming}>{tokensPerSecond}</Text>}
-                {tokensPerSecond !== null && <Text dimColor>t/s</Text>}
-              </Box>
-            )}
+            <Box>
+              <Sep />
+              <Phase />
+              {Client && (
+                <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate) }} />
+              )}
+              <Text dimColor={!session.streaming}>{tokensPerSecond}</Text>
+              <Text dimColor>t/s</Text>
+            </Box>
             {tokens > 0 && (
               <Box>
                 <Sep />
