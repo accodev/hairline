@@ -1,7 +1,6 @@
 import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 const BAR_CELLS = 16
-const MARKER_HIDDEN_FROM = 99
 const WARN_FROM = 60
 const BAD_FROM = 85
 const RESET_SHOWN_FROM = 70
@@ -446,8 +445,9 @@ export const register: Register = (on, options) => {
 
     // The desktop app draws line glyphs wider than a cell, so it gets painted boxes.
     const filled = pct === null ? 0 : filledCells(pct)
-    // A compaction point at the window's end adds nothing to the bar's own end.
-    const markerCell = compactAt === null || compactAt >= MARKER_HIDDEN_FROM ? -1 : Math.min(BAR_CELLS - 1, Math.floor((compactAt / 100) * BAR_CELLS))
+    // In the last cell the marker would only repeat the bar's own end, so it hides there.
+    const compactCell = compactAt === null ? BAR_CELLS : Math.floor((compactAt / 100) * BAR_CELLS)
+    const markerCell = compactCell < BAR_CELLS - 1 ? compactCell : -1
     const cells = Array.from({ length: BAR_CELLS }, (_, i) => ({
       isFilled: i < filled,
       isMarker: i === markerCell,
