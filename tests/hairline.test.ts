@@ -57,7 +57,7 @@ test('draws location, context, limits, model and a copyable session id', async (
     expect(await ui.find({ type: 'Text', text: '? for shortcuts' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'market-it' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: ' 52%' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '  52%' })).toBeDefined()
     if (surface === 'terminal') {
       // 80% of 16 cells: the marker sits in cell 12, past the 8 filled cells.
       const marker = await ui.find({ type: 'Text', text: '┃' })

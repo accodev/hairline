@@ -1,6 +1,12 @@
 import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 const BAR_CELLS = 16
+// Fixed widths, so a changing figure never moves the ones after it on the line.
+const PCT_WIDTH = 4 // 100%
+const CONTEXT_WIDTH = 7 // 999k/1M
+const TPS_WIDTH = 4
+const TPS_MAX = 9999
+const TOKENS_WIDTH = 5 // 1.24M
 const WARN_FROM = 60
 const BAD_FROM = 85
 const RESET_SHOWN_FROM = 70
@@ -68,6 +74,7 @@ type Session = {
   tokensPerSecond: number
   phase: 'sending' | 'receiving' | 'tool' | 'idle'
   streaming: boolean
+  hasStreamed: boolean // until the first reply, the speed slot shows a dash
   context: SessionContextUsage | null
   compactAt: number | null
   rateLimits: SessionRateLimit[]
@@ -84,7 +91,7 @@ type Session = {
 
 const emptyStats = (): Stats => ({ input: 0, write: 0, read: 0, output: 0, main: 0, sub: 0, turns: 0, activeMs: 0, costStart: null })
 const emptySession = (): Session => ({
-  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', streaming: false,
+  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', streaming: false, hasStreamed: false,
   context: null, compactAt: null, rateLimits: [], costUsd: null, lastTurn: null, lastTurnUsd: null, lastRequestAt: null, pickedEffort: null, pickBase: null, seen: { effort: null, model: null },
 })
 let session = emptySession()
@@ -368,6 +375,7 @@ export const register: Register = (on, options) => {
         const piece = chunk.kind === 'text' || chunk.kind === 'thinking' ? chunk.text.length : chunk.kind === 'input' ? chunk.json.length : 0
         if (piece) {
           session.streaming = true
+          session.hasStreamed = true
           if (session.phase !== 'receiving') {
             session.phase = 'receiving'
             redraw($)
@@ -599,20 +607,23 @@ export const register: Register = (on, options) => {
             <Box flexDirection="row" flexShrink={0}>
             <Text>  </Text>
             {contextBar}
-            {pct !== null && <Text color={rampColor(c, pct, compactAt)}>{` ${Math.round(pct)}%`}</Text>}
-            {context?.tokens !== undefined && <Text dimColor>{` ${human(context.tokens)}/${human(context.window)}`}</Text>}
+            {pct === null
+              ? <Text dimColor>{` ${'--%'.padStart(PCT_WIDTH)}`}</Text>
+              : <Text color={rampColor(c, pct, compactAt)}>{` ${`${Math.round(pct)}%`.padStart(PCT_WIDTH)}`}</Text>}
+            <Text dimColor>{` ${(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`).padStart(CONTEXT_WIDTH)}`}</Text>
             <Box>
               <Sep />
               <Phase />
               {Client && (
                 <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate) }} />
               )}
-              <Text dimColor={!session.streaming}>{tokensPerSecond}</Text>
-              <Text dimColor>t/s</Text>
+              <Text dimColor={!session.streaming}>{(session.hasStreamed ? String(Math.min(TPS_MAX, tokensPerSecond)) : '-').padStart(TPS_WIDTH)}</Text>
+              <Text dimColor> t/s</Text>
             </Box>
-            {tokens > 0 && (
+            <Sep />
+            {tokens === 0 ? <Text dimColor>{`${'---'.padStart(TOKENS_WIDTH)} tok`}</Text> : (
               <Box>
-                <Sep />
+                <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>
                 <Button
                   key="hairline-tokens"
                   label={`${human(tokens)} tok`}
