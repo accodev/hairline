@@ -17,10 +17,11 @@ const HOUR_MS = 3_600_000
 const CURRENCIES = ['USD', 'CAD', 'AUD', 'EUR', 'JPY', 'CNY'] as const
 const RATES_URL = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=' // European Central Bank rates, no key
 // The plain glyphs are in Cascadia, Consolas and Menlo, for terminals without a Nerd Font.
-const PHASE_GLYPHS = {
-  nerd: { tool: '', idle: '' }, // nf-fa-cog, nf-fa-pause: private-use code points that most editors show as boxes
-  plain: { tool: '↻', idle: '‖' },
+const IDLE_GLYPHS = {
+  nerd: '', // nf-fa-pause: a private-use code point that most editors show as a box
+  plain: '‖',
 } as const
+const TOOL_GLYPH = '↻' // for surfaces without Client modules, where the spinner cannot run
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
   { kind: 'seven_day', label: '7d' },
@@ -456,13 +457,15 @@ export const register: Register = (on, options) => {
     const now = Date.now()
 
     const Sep = () => <Text dimColor> · </Text>
-    const glyphs = PHASE_GLYPHS[settings.nerdFont && e.surface === 'terminal' ? 'nerd' : 'plain']
+    const idleGlyph = IDLE_GLYPHS[settings.nerdFont && e.surface === 'terminal' ? 'nerd' : 'plain']
     const Phase = () => {
       switch (session.phase) {
         case 'sending': return <Text color={c.folder}>↑ </Text>
         case 'receiving': return <Text color={c.ok}>↓ </Text>
-        case 'tool': return <Text color={c.warn}>{`${glyphs.tool} `}</Text>
-        case 'idle': return <Text dimColor>{`${glyphs.idle} `}</Text>
+        case 'tool': return Client
+          ? <Client key="hairline-spinner" module="./spinner.tsx" props={{ color: c.warn }} />
+          : <Text color={c.warn}>{`${TOOL_GLYPH} `}</Text>
+        case 'idle': return <Text dimColor>{`${idleGlyph} `}</Text>
       }
     }
     const Percent = ({ value }: { value: number }) => <Text color={severity(c, value)}>{`${Math.round(value)}%`}</Text>

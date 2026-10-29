@@ -30,7 +30,7 @@ Claude Code keeps them in `settings.json`, under `pluginConfigs["hairline@hairli
 | `cacheTtlMinutes` | `60` | Prompt cache lifetime, 60 or 5 as your plan uses. |
 | `speedRefreshPerSecond` | `30` | Updates of the tokens per second figure, 1 to 30. |
 | `animationFps` | `30` | Frames per second of the speed dot line, 1 to 60. |
-| `nerdFont` | `false` | Nerd Font icons for the tool and idle phases. Off uses `↻` and `‖`. |
+| `nerdFont` | `false` | Nerd Font pause sign for the idle phase. Off uses `‖`. |
 
 ## Development
 
