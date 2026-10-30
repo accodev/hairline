@@ -66,7 +66,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
     expect(await ui.find({ type: 'Text', text: ' 104k/200k' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '38%' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: / ↻3d$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '2.4M tok' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '10.7M tok' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'opus 5.5' })).toBeDefined()
     const effort = await ui.find({ type: 'Text', text: surface === 'terminal' ? 'xhigh' : 'high' })
     expect(effort?.props.color).toBe(surface === 'terminal' ? 'ansi256(1)' : 'warning')
@@ -81,7 +81,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
 
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
     await ui.press({ key: 'hairline-tokens' })
-    expect((await ui.find({ type: 'Text', text: '2.4M tok' }))?.props.inverse).toBe(true)
+    expect((await ui.find({ type: 'Text', text: '10.7M tok' }))?.props.inverse).toBe(true)
     expect(await ui.find({ type: 'Text', text: /4[.,]82/ })).toBeDefined() // cost, in USD
     expect(await ui.find({ type: 'Text', text: /2[.,]00/ })).toBeDefined() // $4.00 since Hairline's first reading, over 2 active hours
     expect(await ui.find({ type: 'Text', text: '2h' })).toBeDefined() // 2 active hours, no zero unit
