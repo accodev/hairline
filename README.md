@@ -4,6 +4,8 @@
 
 Hairline is a Claude Code mod that adds one status line under the prompt. The line shows folder and branch, a context bar with an auto-compact mark, output tokens per second, session tokens, and 5h and 7d limits. Click the token count for cost, cache use, subagent share and how fast each limit fills. Click the model or effort to pick another, and click the session ID to copy it. Hairline takes its colors from your terminal's own palette. Hairline needs Claude Code mods (early access) and is tested on Claude Code 2.1.312 in the terminal. The Claude desktop app is not supported: its Code tab does not draw the `PromptHint` line.
 
+![Streaming](https://raw.githubusercontent.com/accodev/hairline/screenshots/streaming.png)
+
 ![Token panel](https://raw.githubusercontent.com/accodev/hairline/screenshots/token-panel.png)
 
 ![Effort picker](https://raw.githubusercontent.com/accodev/hairline/screenshots/effort-picker.png)

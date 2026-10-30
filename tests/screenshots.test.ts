@@ -27,9 +27,16 @@ async function inline(node: Node | string, drawn: (key: string) => Promise<Node>
 }
 
 test('screenshots', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
-  mock.clock(on)
+  const clock = mock.clock(on, { now: Date.now() })
   const stats = { input: 1_200, write: 640_000, read: 9_800_000, output: 96_000, main: 610_000, sub: 127_200, turns: 31, activeMs: 5_400_000, costStart: 0 }
-  mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: 'medium', stats }] })
+  // Readings from 1.5 hours ago, so the panel shows how fast each limit fills.
+  const fiveHourReset = new Date(Date.now() + 2 * 3_600_000).toISOString()
+  const sevenDayReset = new Date(Date.now() + 3 * 86_400_000).toISOString()
+  const limitStart = {
+    five_hour: { pct: 21, at: Date.now() - 5_400_000, resetsAt: fiveHourReset },
+    seven_day: { pct: 56, at: Date.now() - 5_400_000, resetsAt: sevenDayReset },
+  }
+  mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: 'medium', stats, limitStart }] })
   on('http.fetch', () => ({ value: { status: 200, ok: true, headers: {}, text: '{"date":"2026-10-29","rates":{"EUR":0.9}}' } }))
   on('session.start', () => ({ cwd: '/home/dev/hairline' }))
   on('session.cwd', () => ({ value: '/home/dev/hairline' }))
@@ -43,8 +50,8 @@ test('screenshots', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on
         breakdown: { isAutoCompactEnabled: true, autoCompactThreshold: 967_000 } as never,
       },
       rateLimits: [
-        { kind: 'five_hour', percentUsed: 34, resetsAt: new Date(Date.now() + 2 * 3_600_000).toISOString() },
-        { kind: 'seven_day', percentUsed: 58, resetsAt: new Date(Date.now() + 3 * 86_400_000).toISOString() },
+        { kind: 'five_hour', percentUsed: 34, resetsAt: fiveHourReset },
+        { kind: 'seven_day', percentUsed: 58, resetsAt: sevenDayReset },
       ],
     },
   }))
@@ -58,12 +65,29 @@ test('screenshots', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on
   }))
   on('ui.render', ($, e) => ({ type: 'Text', props: {}, children: ['hint' in e.props ? e.props.hint : ''] }))
 
+  // A reply at a fixed pace on the mock clock: 50 ms apart, 30 to 54 characters each, so the
+  // speed and the dot line come out the same on every run.
+  on('turn.step', async function* () {
+    for (let i = 0; i < 60; i++) {
+      await clock.advance(50)
+      yield { kind: 'text', index: 0, text: 'x'.repeat(30 + ((i * 7) % 25)) } as never
+    }
+    return { turnId: 'screenshots', index: 0, answer: '', toolUses: [] } as never
+  })
+  on('turn.complete', () => ({ text: '' }) as never)
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/home/dev/hairline' })
   const ui = await $.ui.mount(HINT)
   const shoot = async (name: string) => {
     const tree = await inline((await ui.drawn()) as Node, async key => (await ui.drawn({ in: key })) as Node)
     console.log(`SCENE ${JSON.stringify({ name, columns: COLUMNS, tree })}`)
   }
+  let chunks = 0
+  for await (const _ of $.turn.step({ turnId: 'screenshots', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) {
+    await ui.advance(50)
+    if (++chunks === 48) await shoot('streaming')
+  }
+  await $.turn.complete({ turnId: 'screenshots', answer: '', durationMs: 3_000, isAborted: false, reason: 'answer' })
+  await ui.advance(3_000) // the dot line falls back once the reply ends
   await shoot('line')
   await ui.press({ key: 'hairline-tokens' })
   await shoot('token-panel')
