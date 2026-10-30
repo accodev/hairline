@@ -6,7 +6,7 @@ const PCT_WIDTH = 4 // 100%
 const CONTEXT_WIDTH = 7 // 999k/1M
 const TPS_WIDTH = 4
 const TPS_MAX = 9999
-const TOKENS_WIDTH = 5 // 1.24M
+const TOKENS_WIDTH = 7 // 999.99M, since cache reads take a long session past 100M
 const WARN_FROM = 60
 const BAD_FROM = 85
 const RESET_SHOWN_FROM = 70
@@ -130,7 +130,7 @@ function readSettings(options: PluginOptions): Settings {
 }
 
 const redraw = ($: EngineInterface) => $.ui.invalidate('ui.render')
-const counted = (s: Stats) => s.input + s.write + s.output // cache reads re-count the same context
+const counted = (s: Stats) => s.input + s.write + s.read + s.output // every token in and out, as ccstatusline's Tokens Total counts them
 
 function severity(c: Palette, pct: number): string {
   return pct >= BAD_FROM ? c.bad : pct >= WARN_FROM ? c.warn : c.ok
@@ -596,8 +596,8 @@ export const register: Register = (on, options) => {
             )}
           </Row>
           <Row label="split">
-            <Fig value={`${Math.round((stats.main / Math.max(1, tokens)) * 100)}%`} unit="main" /><Sep />
-            <Fig value={`${Math.round((stats.sub / Math.max(1, tokens)) * 100)}%`} unit="subagents" /><Sep />
+            <Fig value={`${Math.round((stats.main / Math.max(1, stats.main + stats.sub)) * 100)}%`} unit="main" /><Sep />
+            <Fig value={`${Math.round((stats.sub / Math.max(1, stats.main + stats.sub)) * 100)}%`} unit="subagents" /><Sep />
             <Fig value={String(stats.turns)} unit="turns" />
             {stats.activeMs > 0 && <Box><Sep /><Fig value={duration(stats.activeMs)} unit="active" /></Box>}
             {lastTurn && <Box><Sep /><Text dimColor>last turn </Text><Fig value={human(lastTurn.tokens)} unit={`tok in ${duration(lastTurn.ms)}`} /></Box>}
