@@ -384,7 +384,7 @@ export const register: Register = (on, options) => {
     const stream = next(e)
     try {
       for await (const chunk of stream) {
-        const now = Date.now()
+        const now = await $.clock.now() // the test kit's clock, so a test can stream at a fixed pace
         firstChunkAt ||= now
         const piece = chunk.kind === 'text' || chunk.kind === 'thinking' ? chunk.text.length : chunk.kind === 'input' ? chunk.json.length : 0
         if (piece) {
