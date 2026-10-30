@@ -14,7 +14,7 @@ test('draws location, context, limits, model and a copyable session id', async (
   mock.clock(on)
   // Saved by an earlier load of the module in this session: it wins over the config row.
   const stats = { input: 80, write: 2_000_000, read: 8_300_000, output: 400_000, main: 1_600_000, sub: 800_080, turns: 40, activeMs: 2 * 3_600_000, costStart: 0.82 }
-  mock.store(on, { session: { sessionId: SESSION_ID, effort: 'xhigh', stats } })
+  mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: 'xhigh', stats }] })
   const copied: string[] = []
   on('session.start', () => ({ cwd: 'C:/code/market-it/src' }))
   on('session.cwd', () => ({ value: 'C:/code/market-it/src' }))
@@ -118,7 +118,9 @@ test('draws location, context, limits, model and a copyable session id', async (
 
 test('shows cost in the chosen currency at the day\'s ECB rate', { options: { currency: 'rmb' } }, async ($, on) => {
   mock.clock(on)
-  mock.store(on, { session: { sessionId: SESSION_ID, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } } })
+  // Another session saved last: its entry must not replace this one's.
+  const other = { sessionId: 'another-session', effort: 'low', stats: { input: 1, write: 0, read: 0, output: 99_000, main: 99_001, sub: 0, turns: 9, activeMs: 1, costStart: 0 } }
+  mock.store(on, { sessions: [other, { sessionId: SESSION_ID, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })
   const fetched: string[] = []
   on('http.fetch', ($, e) => (fetched.push(e.url), { value: { status: 200, ok: true, headers: {}, text: '{"amount":1.0,"base":"USD","date":"2026-10-29","rates":{"CNY":6.6616}}' } }))
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))
@@ -137,12 +139,13 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { cu
   await ui.press({ key: 'hairline-tokens' })
   expect(fetched).toEqual(['https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY'])
   expect(await ui.find({ type: 'Text', text: /66[.,]62/ })).toBeDefined() // 10 USD at 6.6616
+  expect(await ui.find({ type: 'Text', text: '2k tok' })).toBeDefined() // this session's 1,510, not the other's 99,001
   await ui.unmount()
 })
 
 test('marks the cost with a tilde when the rate cannot be fetched', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
   mock.clock(on)
-  mock.store(on, { session: { sessionId: SESSION_ID, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } } })
+  mock.store(on, { sessions: [{ sessionId: SESSION_ID, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })
   on('http.fetch', () => ({ value: { status: 503, ok: false, headers: {}, text: '' } }))
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))
   on('session.cwd', () => ({ value: 'C:/code/hairline' }))
