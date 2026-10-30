@@ -107,21 +107,21 @@ let modelRow: { value: string; options: readonly string[] } | null = null
 let charsPerToken = 4 // the usual English ratio, until the first response measures it
 
 type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number; nerdFont: boolean }
-let settings: Settings = { currency: 'USD', usdRate: 1, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30, nerdFont: false }
+let settings: Settings = { currency: 'EUR', usdRate: 0.9, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30, nerdFont: false }
 
 // Set once a day: the ECB publishes one rate per working day.
 let exchange: { currency: string; rate: number; fetchedOn: string } | null = null
 let exchangeTriedAt = 0
 
 function readSettings(options: PluginOptions): Settings {
-  const code = String(options.currency || 'USD').trim().toUpperCase().replace(/^RMB$/, 'CNY')
+  const code = String(options.currency || 'EUR').trim().toUpperCase().replace(/^RMB$/, 'CNY')
   const rate = Number(options.usdRate)
   const ttl = Number(options.cacheTtlMinutes)
   const refresh = Number(options.speedRefreshPerSecond)
   const frames = Number(options.animationFps)
   return {
-    currency: (CURRENCIES as readonly string[]).includes(code) ? code : 'USD',
-    usdRate: rate > 0 ? rate : 1,
+    currency: (CURRENCIES as readonly string[]).includes(code) ? code : 'EUR',
+    usdRate: rate > 0 ? rate : 0.9,
     cacheTtlMinutes: ttl > 0 ? ttl : 60,
     refreshPerSecond: refresh > 0 ? Math.min(HINT_REDRAWS_MAX, Math.max(1, refresh)) : HINT_REDRAWS_MAX,
     frameRate: frames > 0 ? Math.min(FRAMES_MAX, Math.max(1, frames)) : 30,

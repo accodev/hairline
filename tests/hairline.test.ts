@@ -10,7 +10,7 @@ const HINT = {
 
 const SESSION_ID = '02c6e8dd-64d4-4f01-8f7f-3a43b20104a2'
 
-test('draws location, context, limits, model and a copyable session id', async ($, on) => {
+test('draws location, context, limits, model and a copyable session id', { options: { currency: 'USD' } }, async ($, on) => {
   mock.clock(on)
   // Saved by an earlier load of the module in this session: it wins over the config row.
   const stats = { input: 80, write: 2_000_000, read: 8_300_000, output: 400_000, main: 1_600_000, sub: 800_080, turns: 40, activeMs: 2 * 3_600_000, costStart: 0.82 }
@@ -82,7 +82,7 @@ test('draws location, context, limits, model and a copyable session id', async (
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
     await ui.press({ key: 'hairline-tokens' })
     expect((await ui.find({ type: 'Text', text: '2.4M tok' }))?.props.inverse).toBe(true)
-    expect(await ui.find({ type: 'Text', text: /4[.,]82/ })).toBeDefined() // cost, in the default USD
+    expect(await ui.find({ type: 'Text', text: /4[.,]82/ })).toBeDefined() // cost, in USD
     expect(await ui.find({ type: 'Text', text: /2[.,]00/ })).toBeDefined() // $4.00 since Hairline's first reading, over 2 active hours
     expect(await ui.find({ type: 'Text', text: '2h' })).toBeDefined() // 2 active hours, no zero unit
     expect(await ui.find({ type: 'Text', text: '81%' })).toBeDefined() // cache hit: 8.3M of 10.3M
