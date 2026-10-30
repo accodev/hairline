@@ -30,4 +30,5 @@ CI runs both on Claude Code 2.1.312 (Node 22). `main` requires the `check` statu
 - Conventional Commits. One PR per change, CI green, rebase merge.
 - Bump `version` in `.claude-plugin/plugin.json` on a behavior change.
 - Comments say why, never what.
+- README images come from `tests/screenshots.test.ts`. The `screenshots` workflow renders them on `main` and pushes them to the `screenshots` branch.
 - Keep each file's line endings. Source files and `plugin.json` are CRLF. Other JSON and YAML files are LF.
