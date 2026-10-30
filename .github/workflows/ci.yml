@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Mods are early access: pin the Claude Code version the mod was tested on, and raise it on purpose.
+  # The mod API can change between releases: pin the Claude Code version the mod was tested on, and raise it on purpose.
   CLAUDE_CODE_VERSION: 2.1.312
 
 jobs:
