@@ -1,6 +1,6 @@
 import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
-const BAR_CELLS = 16
+const BAR_CELLS = 8
 // Fixed widths, so a changing figure never moves the ones after it on the line.
 const PCT_WIDTH = 4 // 100%
 const CONTEXT_WIDTH = 7 // 999k/1M
