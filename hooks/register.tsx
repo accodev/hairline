@@ -230,20 +230,34 @@ function basename(path: string): string {
 }
 
 // /reload-plugins clears the module, and no engine call reports these values again.
-const SAVED_KEY = 'session'
+// One entry per session, newest first, as Claude Code's own plugins keep theirs: parallel
+// sessions share this store, and a single entry let each overwrite the others.
+const SAVED_KEY = 'sessions'
+const SAVED_MAX = 20
 type Saved = { sessionId: string; effort: string | null; pickedEffort?: string | null; pickBase?: Session['pickBase']; stats?: Stats; limitStart?: LimitStart }
+
+const LEGACY_KEY = 'session' // up to 0.27.1, one entry for every session
+
+async function readSaved($: EngineInterface): Promise<Saved[]> {
+  const [list, legacy] = await Promise.all([$.store.get(SAVED_KEY), $.store.get(LEGACY_KEY)])
+  return [...(Array.isArray(list) ? (list as Saved[]) : []), ...(legacy ? [legacy as Saved] : [])]
+}
 
 function save($: EngineInterface): void {
   const { effort, pickedEffort, pickBase, stats, limitStart } = session
-  void $.session.id()
-    .then(sessionId => $.store.set(SAVED_KEY, { sessionId, effort, pickedEffort, pickBase, stats, limitStart } satisfies Saved))
+  void Promise.all([$.session.id(), readSaved($)])
+    .then(([sessionId, list]) => $.store.set(SAVED_KEY, [
+      { sessionId, effort, pickedEffort, pickBase, stats, limitStart } satisfies Saved,
+      ...list.filter(saved => saved.sessionId !== sessionId),
+    ].slice(0, SAVED_MAX)))
+    .then(() => $.store.delete(LEGACY_KEY))
     .catch(() => {})
 }
 
 async function restore($: EngineInterface): Promise<Saved | undefined> {
   try {
-    const saved = (await $.store.get(SAVED_KEY)) as Saved | undefined
-    return saved?.sessionId === (await $.session.id()) ? saved : undefined
+    const [sessionId, list] = await Promise.all([$.session.id(), readSaved($)])
+    return list.find(saved => saved.sessionId === sessionId)
   } catch {
     return undefined
   }
