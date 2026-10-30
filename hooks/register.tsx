@@ -561,9 +561,8 @@ export const register: Register = (on, options) => {
             {perHour > 0 ? (
               <Box>
                 <Text dimColor>{` +${perHour.toFixed(1)}%/h`}</Text>
-                {fullInMs !== null && resetsInMs !== null && fullInMs >= resetsInMs
-                  ? <Text dimColor>{', resets first'}</Text>
-                  : <Text color={c.warn}>{`, full in ${duration(fullInMs ?? 0)}`}</Text>}
+                {/* Only a limit that fills before its reset needs a word. */}
+                {(fullInMs === null || resetsInMs === null || fullInMs < resetsInMs) && <Text color={c.warn}>{`, full in ${duration(fullInMs ?? 0)}`}</Text>}
               </Box>
             ) : <Text dimColor>{spanHours < BURN_MIN_HOURS ? ' measuring' : ' steady'}</Text>}
           </Box>
