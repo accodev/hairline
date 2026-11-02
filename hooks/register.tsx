@@ -301,12 +301,19 @@ let hasNerdFont = false
 
 // The terminal or app font is out of reach, so an installed Nerd Font stands in for one in use.
 // fc-list covers Linux and Homebrew macOS; the font folders cover Windows and plain macOS.
+// Windows has no fc-list, and a failed spawn there costs about 95 ms.
 async function findNerdFont($: EngineInterface): Promise<boolean> {
-  try {
-    const out = await $.process.run(['fc-list', ':', 'family'], { timeoutMs: 3_000 })
-    if (out.exitCode === 0) return NERD_FONT_NAME.test(out.stdout)
-  } catch {}
-  const [windir, localAppData, home] = await Promise.all([$.env.get('WINDIR'), $.env.get('LOCALAPPDATA'), $.env.get('HOME')])
+  const [windir, localAppData, home] = await Promise.all([
+    $.env.get('WINDIR').catch(() => undefined),
+    $.env.get('LOCALAPPDATA').catch(() => undefined),
+    $.env.get('HOME').catch(() => undefined),
+  ])
+  if (!windir) {
+    try {
+      const out = await $.process.run(['fc-list', ':', 'family'], { timeoutMs: 3_000 })
+      if (out.exitCode === 0) return NERD_FONT_NAME.test(out.stdout)
+    } catch {}
+  }
   const dirs = [
     windir && `${windir}/Fonts`,
     localAppData && `${localAppData}/Microsoft/Windows/Fonts`,
@@ -334,37 +341,49 @@ async function readLocation($: EngineInterface): Promise<void> {
   } catch {}
 }
 
+const NERD_FONT_KEY = 'nerdFont'
+
+// The last answer draws the first line; the check runs again behind it, for a font added or removed since.
+async function readNerdFont($: EngineInterface): Promise<void> {
+  const cached = await $.store.get(NERD_FONT_KEY).catch(() => undefined)
+  if (typeof cached === 'boolean' && cached !== hasNerdFont) {
+    hasNerdFont = cached
+    redraw($)
+  }
+  const found = await findNerdFont($)
+  if (found !== cached) void $.store.set(NERD_FONT_KEY, found).catch(() => {})
+  if (found === hasNerdFont) return
+  hasNerdFont = found
+  redraw($)
+}
+
 // Also called from the first render: after /reload-plugins, session.start does not fire.
+// The reads run side by side; each redraws when it lands, so the line fills in as they arrive.
 async function load($: EngineInterface): Promise<void> {
   loaded = true
-  void findNerdFont($).then(found => {
-    hasNerdFont = found
-    if (found) redraw($)
-  })
-  await readLocation($)
+  void readNerdFont($)
+  void readLocation($)
   void readExchange($)
-  const saved = await restore($)
+  void readCompactAt($)
+  const [saved, usage, rows] = await Promise.all([
+    restore($),
+    $.session.usage().catch(() => null), // the first session.measure sends the numbers
+    $.config.list().catch(() => null), // the first request sends the effort
+  ])
   if (saved?.stats && counted(saved.stats) > counted(session.stats)) session.stats = { ...emptyStats(), ...saved.stats }
   if (saved?.limitStart) session.limitStart = { ...saved.limitStart, ...session.limitStart }
-  try {
-    const usage = await $.session.usage()
+  if (usage) {
     session.context = usage.context
     session.rateLimits = usage.rateLimits
     session.costUsd = usage.cost?.usd ?? null
     session.stats.costStart ??= session.costUsd
     trackLimits($, usage.rateLimits)
-  } catch {
-    // the first session.measure sends the numbers
   }
-  await readCompactAt($)
-  try {
+  if (rows) {
     session.pickedEffort = saved?.pickedEffort ?? null
     session.pickBase = saved?.pickBase ?? null
-    const rows = await $.config.list()
     readRows(rows)
     setEffort($, session.pickedEffort ?? saved?.effort ?? rows.find(row => /effort/i.test(row.key))?.value)
-  } catch {
-    // the first request sends the effort
   }
   redraw($)
 }
@@ -703,7 +722,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     session = emptySession()
-    await load($)
+    void load($) // the session starts without waiting for the line's data
     if (!timerStarted) {
       timerStarted = true
       $.clock.every(LOCATION_REFRESH_MS, () => {
