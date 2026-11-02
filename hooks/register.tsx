@@ -340,6 +340,16 @@ async function load($: EngineInterface): Promise<void> {
   redraw($)
 }
 
+// The desktop app sets text in a proportional font, where the line's glyphs and figures drift.
+// Monospaced caption text draws them as the terminal does; other mods' rows keep their own style.
+function monospace(node: RenderElement): RenderElement {
+  if (!node || typeof node !== 'object') return node
+  if (Array.isArray(node)) return node.map(monospace) as never
+  const el = node as { type: string; props?: Record<string, unknown>; children?: RenderElement }
+  const props = el.type === 'Text' ? { mono: true, tabular: true, size: 'caption', ...el.props } : el.props
+  return { ...el, props, children: el.children === undefined ? undefined : monospace(el.children) } as never
+}
+
 // The line and its panels, under whatever the hooks beneath drew: the engine's hint on the terminal,
 // another mod's rows in the desktop app's band above the prompt.
 async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'AbovePrompt'>, engineHint: RenderElement | null | undefined) {
@@ -348,6 +358,10 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const { Box, Text, Button } = elements
   const Client = 'Client' in elements ? elements.Client : null // only the terminal and the desktop app run Client modules
   const c = e.surface === 'terminal' ? TERMINAL_PALETTE : THEME_PALETTE
+  // The desktop app shows the folder, model and effort next to the prompt already.
+  const isDesktop = e.surface === 'desktop'
+  // Monospaced digits keep the figures still in the desktop app, so the slot padding only leaves gaps there.
+  const slot = (text: string, width: number) => (isDesktop ? text : text.padStart(width))
   const [model, sessionId] = await Promise.all([$.session.model().catch(() => ''), $.session.id().catch(() => '')])
   const { folder, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
   const tokens = counted(stats)
@@ -361,14 +375,15 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       case 'sending': return <Text color={c.folder}>↑ </Text>
       case 'receiving': return <Text color={c.ok}>↓ </Text>
       case 'tool': return Client
-        ? <Client key="hairline-spinner" module="./spinner.tsx" props={{ color: c.warn }} />
+        ? <Client key="hairline-spinner" module="./spinner.tsx" props={{ color: c.warn, mono: isDesktop }} />
         : <Text color={c.warn}>{`${TOOL_GLYPH} `}</Text>
       case 'idle': return <Text dimColor>{`${idleGlyph} `}</Text>
     }
   }
   const Percent = ({ value }: { value: number }) => <Text color={severity(c, value)}>{`${Math.round(value)}%`}</Text>
 
-  // The desktop app draws line glyphs wider than a cell, so it gets painted boxes.
+  // Other graphical surfaces draw line glyphs wider than a cell, so they get painted boxes. The
+  // desktop app's text is monospaced (see monospace), which keeps the glyphs one cell wide.
   const filled = pct === null ? 0 : filledCells(pct)
   // In the last cell the marker would only repeat the bar's own end, so it hides there.
   const compactCell = compactAt === null ? BAR_CELLS : Math.floor((compactAt / 100) * BAR_CELLS)
@@ -378,7 +393,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     isMarker: i === markerCell,
     color: rampColor(c, ((i + 0.5) / BAR_CELLS) * 100, compactAt),
   }))
-  const contextBar = e.surface === 'terminal' ? (
+  const contextBar = e.surface === 'terminal' || isDesktop ? (
     <Box>
       {cells.map((cell, i) =>
         cell.isMarker ? <Text key={`cell-${i}`} dimColor color={cell.isFilled ? cell.color : c.marker}>┃</Text>
@@ -482,40 +497,41 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     )
   }
 
-  return (
+  const line = (
     <Box flexDirection="column">
-      {engineHint}
       <Box flexDirection="row" justifyContent="space-between" width="100%" overflow="hidden">
         <Box flexDirection="row" flexShrink={1} overflow="hidden">
           {/* Only the location shrinks, so the figures never wrap to a second row. */}
-          <Box flexDirection="row" flexShrink={1} overflow="hidden">
-            <Text color={c.folder} wrap="truncate-end">{folder}</Text>
-            {branch && <Text dimColor>:</Text>}
-            {branch && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
-          </Box>
+          {!isDesktop && (
+            <Box flexDirection="row" flexShrink={1} overflow="hidden">
+              <Text color={c.folder} wrap="truncate-end">{folder}</Text>
+              {branch && <Text dimColor>:</Text>}
+              {branch && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
+            </Box>
+          )}
           <Box flexDirection="row" flexShrink={0}>
-          <Text>  </Text>
+          {!isDesktop && <Text>  </Text>}
           {contextBar}
           {pct === null
-            ? <Text dimColor>{` ${'--%'.padStart(PCT_WIDTH)}`}</Text>
-            : <Text color={rampColor(c, pct, compactAt)}>{` ${`${Math.round(pct)}%`.padStart(PCT_WIDTH)}`}</Text>}
-          <Text dimColor>{` ${(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`).padStart(CONTEXT_WIDTH)}`}</Text>
+            ? <Text dimColor>{` ${slot('--%', PCT_WIDTH)}`}</Text>
+            : <Text color={rampColor(c, pct, compactAt)}>{` ${slot(`${Math.round(pct)}%`, PCT_WIDTH)}`}</Text>}
+          <Text dimColor>{` ${slot(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`}</Text>
           <Box>
             <Sep />
             <Phase />
             {Client && (
-              <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate) }} />
+              <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
             )}
-            <Text dimColor={!session.streaming}>{(session.hasStreamed ? String(Math.min(TPS_MAX, tokensPerSecond)) : '-').padStart(TPS_WIDTH)}</Text>
+            <Text dimColor={!session.streaming}>{slot(session.hasStreamed ? String(Math.min(TPS_MAX, tokensPerSecond)) : '-', TPS_WIDTH)}</Text>
             <Text dimColor> t/s</Text>
           </Box>
           <Sep />
-          {tokens === 0 ? <Text dimColor>{`${'---'.padStart(TOKENS_WIDTH)} tok`}</Text> : (
+          {tokens === 0 ? <Text dimColor>{`${slot('---', TOKENS_WIDTH)} tok`}</Text> : (
             <Box>
-              <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>
+              {!isDesktop && <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>}
               <Button
                 key="hairline-tokens"
-                label={`${human(tokens)} tok`}
+                label={isDesktop ? undefined : `${human(tokens)} tok`}
                 plain
                 onPress={() => {
                   toggle($, 'tokens')
@@ -529,7 +545,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           </Box>
         </Box>
         <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
-          {model && (modelRow ? (
+          {model && !isDesktop && (modelRow ? (
             <Button
               key="hairline-model"
               label={modelLabel(model)}
@@ -542,7 +558,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
               <Text inverse={open === 'model'}>{modelLabel(model)}</Text>
             </Button>
           ) : <Text>{modelLabel(model)}</Text>)}
-          {model && effort && (
+          {model && effort && !isDesktop && (
             <Box>
               <Text> </Text>
               <Button
@@ -560,10 +576,10 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           )}
           {sessionId && (
             <Box>
-              {model && <Sep />}
+              {model && !isDesktop && <Sep />}
               <Button
                 key="hairline-session-id"
-                label={sessionId.slice(0, 8)}
+                label={isDesktop ? undefined : sessionId.slice(0, 8)}
                 plain
                 onPress={async press => {
                   const r = await $.ui.copy({ text: sessionId, surface: press.surface })
@@ -626,6 +642,12 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
         </Box>
       )}
       {open === 'tokens' && tokens > 0 && panel()}
+    </Box>
+  )
+  return (
+    <Box flexDirection="column">
+      {engineHint}
+      {isDesktop ? monospace(line) : line}
     </Box>
   )
 }
