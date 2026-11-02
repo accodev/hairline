@@ -1,6 +1,6 @@
 # AGENTS.md
 
-The Claude desktop app is unsupported: its Code tab does not draw `PromptHint`.
+The Claude desktop app never asks for `PromptHint`, so hairline draws there in `AbovePrompt`. `drawLine` serves both; `monospace` restyles hairline's text for the app.
 
 ## Check
 
@@ -13,8 +13,9 @@ CI runs both on Claude Code 2.1.312 (Node 22). `main` requires the `check` statu
 
 ## Hooks
 
-- `hooks/hooks.json` loads `hooks/register.tsx` only. `hooks/speed.tsx` and `hooks/spinner.tsx` are Client modules. Keep them out of `hooks.json`.
-- Register each event once. A second `on` of the same event throws.
+- `hooks/hooks.json` loads `hooks/register.tsx` only. `hooks/speed.tsx`, `hooks/spinner.tsx` and `hooks/chip.tsx` are Client modules. Keep them out of `hooks.json`.
+- The desktop app draws a `Button` as a native control in its own font. `chip.tsx` stands in for one there and posts clicks to `ui.message`.
+- Register each event once, or each time with its own matcher. A second `on` of the same event without one throws.
 - Spell `on`, `$`, `$.env` and `$.state` literally. Pass `$` only to module-level functions.
 - No `import()`, `require`, Node or DOM. Use `$.process`, `$.http`, `$.store` and `$.clock`.
 - `/reload-plugins` resets module state without `session.start`, so the first render calls `load($)`.

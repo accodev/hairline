@@ -1,4 +1,4 @@
-import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, RenderElement, RenderInput, SessionContextUsage, SessionRateLimit } from 'claude-code'
+import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, RenderElement, RenderInput, RenderSurface, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 const BAR_CELLS = 8
 // Fixed widths, so a changing figure never moves the ones after it on the line.
@@ -22,12 +22,11 @@ const BURN_MIN_HOURS = 0.1
 const HOUR_MS = 3_600_000
 const CURRENCIES = ['USD', 'CAD', 'AUD', 'EUR', 'JPY', 'CNY'] as const
 const RATES_URL = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=' // European Central Bank rates, no key
-// The plain glyphs are in Cascadia, Consolas and Menlo, for terminals without a Nerd Font.
-const IDLE_GLYPHS = {
-  nerd: '', // nf-fa-pause: a private-use code point that most editors show as a box
-  plain: '‖',
-} as const
-const TOOL_GLYPH = '↻' // for surfaces without Client modules, where the spinner cannot run
+// Nerd Font glyphs, private-use code points that any other font draws as a box. Without an
+// installed Nerd Font, and always in the desktop app, whose monospaced face has none of them,
+// the phase shows blank cells of the same width, so the line stays still.
+const NERD_GLYPHS = { idle: '\uf04c', tool: '\uf013' } as const // nf-fa-pause, nf-fa-cog
+const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
   { kind: 'seven_day', label: '7d' },
@@ -106,8 +105,8 @@ const toggle = ($: EngineInterface, panel: Panel) => setOpen($, open === panel ?
 let modelRow: { value: string; options: readonly string[] } | null = null
 let charsPerToken = 4 // the usual English ratio, until the first response measures it
 
-type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number; nerdFont: boolean }
-let settings: Settings = { currency: 'EUR', usdRate: 0.9, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30, nerdFont: false }
+type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number }
+let settings: Settings = { currency: 'EUR', usdRate: 0.9, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30 }
 
 // Set once a day: the ECB publishes one rate per working day.
 let exchange: { currency: string; rate: number; fetchedOn: string } | null = null
@@ -125,7 +124,6 @@ function readSettings(options: PluginOptions): Settings {
     cacheTtlMinutes: ttl > 0 ? ttl : 60,
     refreshPerSecond: refresh > 0 ? Math.min(HINT_REDRAWS_MAX, Math.max(1, refresh)) : HINT_REDRAWS_MAX,
     frameRate: frames > 0 ? Math.min(FRAMES_MAX, Math.max(1, frames)) : 30,
-    nerdFont: options.nerdFont === true,
   }
 }
 
@@ -296,6 +294,31 @@ function readRows(rows: readonly ConfigRow[]): void {
   modelRow = row?.options?.length && !row.isLocked ? { value: String(row.value), options: row.options } : null
 }
 
+// Set once per process: the font list does not change while a session runs.
+let hasNerdFont = false
+
+// The terminal or app font is out of reach, so an installed Nerd Font stands in for one in use.
+// fc-list covers Linux and Homebrew macOS; the font folders cover Windows and plain macOS.
+async function findNerdFont($: EngineInterface): Promise<boolean> {
+  try {
+    const out = await $.process.run(['fc-list', ':', 'family'], { timeoutMs: 3_000 })
+    if (out.exitCode === 0) return NERD_FONT_NAME.test(out.stdout)
+  } catch {}
+  const [windir, localAppData, home] = await Promise.all([$.env.get('WINDIR'), $.env.get('LOCALAPPDATA'), $.env.get('HOME')])
+  const dirs = [
+    windir && `${windir}/Fonts`,
+    localAppData && `${localAppData}/Microsoft/Windows/Fonts`,
+    home && `${home}/Library/Fonts`,
+    '/Library/Fonts',
+  ].filter((dir): dir is string => Boolean(dir))
+  for (const dir of dirs) {
+    try {
+      if ((await $.fs.list(dir)).some(entry => NERD_FONT_NAME.test(entry.name))) return true
+    } catch {}
+  }
+  return false
+}
+
 // One process for both values: a spawn costs more than the git work.
 async function readLocation($: EngineInterface): Promise<void> {
   try {
@@ -312,6 +335,10 @@ async function readLocation($: EngineInterface): Promise<void> {
 // Also called from the first render: after /reload-plugins, session.start does not fire.
 async function load($: EngineInterface): Promise<void> {
   loaded = true
+  void findNerdFont($).then(found => {
+    hasNerdFont = found
+    if (found) redraw($)
+  })
   await readLocation($)
   void readExchange($)
   const saved = await restore($)
@@ -338,6 +365,12 @@ async function load($: EngineInterface): Promise<void> {
     // the first request sends the effort
   }
   redraw($)
+}
+
+async function copySessionId($: EngineInterface, surface: RenderSurface): Promise<void> {
+  const sessionId = await $.session.id()
+  const r = await $.ui.copy({ text: sessionId, surface })
+  $.ui.toast(r.isCopied ? `session id copied: ${sessionId}` : `session id: ${sessionId}`)
 }
 
 // The desktop app sets text in a proportional font, where the line's glyphs and figures drift.
@@ -369,15 +402,14 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const now = Date.now()
 
   const Sep = () => <Text dimColor> · </Text>
-  const idleGlyph = IDLE_GLYPHS[settings.nerdFont && e.surface === 'terminal' ? 'nerd' : 'plain']
   const Phase = () => {
     switch (session.phase) {
       case 'sending': return <Text color={c.folder}>↑ </Text>
       case 'receiving': return <Text color={c.ok}>↓ </Text>
       case 'tool': return Client
         ? <Client key="hairline-spinner" module="./spinner.tsx" props={{ color: c.warn, mono: isDesktop }} />
-        : <Text color={c.warn}>{`${TOOL_GLYPH} `}</Text>
-      case 'idle': return <Text dimColor>{`${idleGlyph} `}</Text>
+        : <Text color={c.warn}>{`${hasNerdFont && !isDesktop ? NERD_GLYPHS.tool : ' '} `}</Text>
+      case 'idle': return <Text dimColor>{`${hasNerdFont && !isDesktop ? NERD_GLYPHS.idle : ' '} `}</Text>
     }
   }
   const Percent = ({ value }: { value: number }) => <Text color={severity(c, value)}>{`${Math.round(value)}%`}</Text>
@@ -528,17 +560,23 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           <Sep />
           {tokens === 0 ? <Text dimColor>{`${slot('---', TOKENS_WIDTH)} tok`}</Text> : (
             <Box>
-              {!isDesktop && <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>}
-              <Button
-                key="hairline-tokens"
-                label={isDesktop ? undefined : `${human(tokens)} tok`}
-                plain
-                onPress={() => {
-                  toggle($, 'tokens')
-                }}
-              >
-                <Text inverse={open === 'tokens'}>{`${human(tokens)} tok`}</Text>
-              </Button>
+              {isDesktop && Client ? (
+                <Client key="hairline-tokens" module="./chip.tsx" props={{ text: `${human(tokens)} tok`, inverse: open === 'tokens' }} />
+              ) : (
+                <Box>
+                  <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>
+                  <Button
+                    key="hairline-tokens"
+                    label={`${human(tokens)} tok`}
+                    plain
+                    onPress={() => {
+                      toggle($, 'tokens')
+                    }}
+                  >
+                    <Text inverse={open === 'tokens'}>{`${human(tokens)} tok`}</Text>
+                  </Button>
+                </Box>
+              )}
             </Box>
           )}
           {windows}
@@ -577,17 +615,18 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           {sessionId && (
             <Box>
               {model && !isDesktop && <Sep />}
-              <Button
-                key="hairline-session-id"
-                label={isDesktop ? undefined : sessionId.slice(0, 8)}
-                plain
-                onPress={async press => {
-                  const r = await $.ui.copy({ text: sessionId, surface: press.surface })
-                  $.ui.toast(r.isCopied ? `session id copied: ${sessionId}` : `session id: ${sessionId}`)
-                }}
-              >
-                <Text color={c.track} dimColor>{sessionId.slice(0, 8)}</Text>
-              </Button>
+              {isDesktop && Client ? (
+                <Client key="hairline-session-id" module="./chip.tsx" props={{ text: sessionId.slice(0, 8), color: c.track, dim: true }} />
+              ) : (
+                <Button
+                  key="hairline-session-id"
+                  label={sessionId.slice(0, 8)}
+                  plain
+                  onPress={press => copySessionId($, press.surface)}
+                >
+                  <Text color={c.track} dimColor>{sessionId.slice(0, 8)}</Text>
+                </Button>
+              )}
             </Box>
           )}
         </Box>
@@ -774,6 +813,13 @@ export const register: Register = (on, options) => {
     }
     redraw($)
     if (windowChanged) void readCompactAt($)
+    return next(e)
+  })
+
+  // Clicks on the desktop app's chips (hooks/chip.tsx), which stand in for the terminal's Buttons.
+  on('ui.message', async ($, e, next) => {
+    if (e.element === 'hairline-tokens') toggle($, 'tokens')
+    else if (e.element === 'hairline-session-id') await copySessionId($, e.surface)
     return next(e)
   })
 

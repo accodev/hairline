@@ -167,7 +167,7 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
 
 test('draws the line in the desktop band above the prompt, under other mods and never over a survey', async ($, on) => {
   mock.clock(on)
-  mock.store(on, {})
+  mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: null, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))
   on('session.cwd', () => ({ value: 'C:/code/hairline' }))
   on('process.run', () => ({ value: { exitCode: 0, stdout: 'C:/code/hairline\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
@@ -179,14 +179,14 @@ test('draws the line in the desktop band above the prompt, under other mods and 
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['another mod'] }))
 
   await $.session.start({ surface: 'desktop', isInteractive: true, cwd: 'C:/code/hairline' })
-  const band = (surface: 'desktop' | 'terminal', hasSurvey: boolean) => $.ui.mount({
+  const band = <S extends 'desktop' | 'terminal'>(surface: S, hasSurvey: boolean) => $.ui.mount({
     plugin: 'hairline',
     component: 'AbovePrompt',
     requestId: 'AbovePrompt',
     surface,
     viewport: { columns: 160, rows: 40 },
     props: { hasSurvey, isWorking: false, maxRows: 20, bodyColumns: 155, scroll: { offset: 0, bodyRows: 19 }, view: {} },
-  } as never)
+  })
 
   const desktop = await band('desktop', false)
   expect(await desktop.find({ type: 'Text', text: 'another mod' })).toBeDefined()
@@ -194,6 +194,10 @@ test('draws the line in the desktop band above the prompt, under other mods and 
   expect(await desktop.find({ type: 'Text', text: 'hairline' })).toBeUndefined() // the app shows the folder already
   expect((await desktop.find({ type: 'Text', text: ' t/s' }))?.props.mono).toBe(true)
   expect((await desktop.find({ type: 'Text', text: 'another mod' }))?.props.mono).toBeUndefined() // other mods keep their style
+  // The token count is a chip there: a click posts, and the hooks module opens the panel.
+  expect(await desktop.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
+  await desktop.post({ press: true }, { in: 'hairline-tokens' })
+  expect(await desktop.find({ type: 'Text', text: /^cost/ })).toBeDefined()
   await desktop.unmount()
 
   for (const [surface, hasSurvey] of [['terminal', false], ['desktop', true]] as const) {
