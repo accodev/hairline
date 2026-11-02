@@ -33,12 +33,6 @@
       "title": "Dot line frames per second",
       "description": "How often the speed dot line moves while Claude streams, 1 to 60. Lower values use less CPU.",
       "default": 30
-    },
-    "nerdFont": {
-      "type": "boolean",
-      "title": "Nerd Font icons",
-      "description": "Use the Nerd Font pause sign for the idle phase. Turn on only when your terminal font is a Nerd Font; off uses ‖.",
-      "default": false
     }
   }
 }

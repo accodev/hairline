@@ -40,7 +40,8 @@ test('screenshots', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on
   on('http.fetch', () => ({ value: { status: 200, ok: true, headers: {}, text: '{"date":"2026-10-29","rates":{"EUR":0.9}}' } }))
   on('session.start', () => ({ cwd: '/home/dev/hairline' }))
   on('session.cwd', () => ({ value: '/home/dev/hairline' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: '/home/dev/hairline\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  // The renderer has Maple Mono NF, so the line shows the Nerd Font glyphs.
+  on('process.run', ($, e) => ({ value: { exitCode: 0, stdout: e.argv[0] === 'fc-list' ? 'Maple Mono NF\n' : '/home/dev/hairline\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('session.usage', () => ({
     value: {
       startedAt: Date.now() - 2 * 3_600_000,
