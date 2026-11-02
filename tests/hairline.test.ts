@@ -18,8 +18,8 @@ test('draws location, context, limits, model and a copyable session id', { optio
   const copied: string[] = []
   on('session.start', () => ({ cwd: 'C:/code/market-it/src' }))
   on('session.cwd', () => ({ value: 'C:/code/market-it/src' }))
-  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/market-it/.git' ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
-  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/market-it/.git/HEAD' ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
+  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/").endsWith('/code/market-it/.git') ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/").endsWith('/code/market-it/.git/HEAD') ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
   on('session.usage', () => ({
     value: {
       startedAt: Date.now() - 7 * 86_400_000, // a resumed session: its age says nothing about cost
@@ -127,8 +127,8 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { cu
   on('http.fetch', ($, e) => (fetched.push(e.url), { value: { status: 200, ok: true, headers: {}, text: '{"amount":1.0,"base":"USD","date":"2026-10-29","rates":{"CNY":6.6616}}' } }))
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))
   on('session.cwd', () => ({ value: 'C:/code/hairline' }))
-  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git' ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
-  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git/HEAD' ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
+  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/").endsWith('/code/hairline/.git') ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/").endsWith('/code/hairline/.git/HEAD') ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
   on('session.usage', () => ({
     value: { startedAt: Date.now(), cost: { usd: 10 }, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] },
   }))
@@ -152,8 +152,8 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
   on('http.fetch', () => ({ value: { status: 503, ok: false, headers: {}, text: '' } }))
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))
   on('session.cwd', () => ({ value: 'C:/code/hairline' }))
-  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git' ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
-  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git/HEAD' ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
+  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/").endsWith('/code/hairline/.git') ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/").endsWith('/code/hairline/.git/HEAD') ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
   on('session.usage', () => ({
     value: { startedAt: Date.now(), cost: { usd: 10 }, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] },
   }))
@@ -174,8 +174,8 @@ test('draws the line in the desktop band above the prompt, under other mods and 
   mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: null, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))
   on('session.cwd', () => ({ value: 'C:/code/hairline' }))
-  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git' ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
-  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git/HEAD' ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
+  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/").endsWith('/code/hairline/.git') ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/").endsWith('/code/hairline/.git/HEAD') ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
   on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] } }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.id', () => ({ value: SESSION_ID }))
