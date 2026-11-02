@@ -11,14 +11,15 @@ const HINT = {
 const SESSION_ID = '02c6e8dd-64d4-4f01-8f7f-3a43b20104a2'
 
 test('draws location, context, limits, model and a copyable session id', { options: { currency: 'USD' } }, async ($, on) => {
-  mock.clock(on)
+  const clock = mock.clock(on)
   // Saved by an earlier load of the module in this session: it wins over the config row.
   const stats = { input: 80, write: 2_000_000, read: 8_300_000, output: 400_000, main: 1_600_000, sub: 800_080, turns: 40, activeMs: 2 * 3_600_000, costStart: 0.82 }
   mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: 'xhigh', stats }] })
   const copied: string[] = []
   on('session.start', () => ({ cwd: 'C:/code/market-it/src' }))
   on('session.cwd', () => ({ value: 'C:/code/market-it/src' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: 'C:/code/market-it\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/market-it/.git' ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/market-it/.git/HEAD' ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
   on('session.usage', () => ({
     value: {
       startedAt: Date.now() - 7 * 86_400_000, // a resumed session: its age says nothing about cost
@@ -54,6 +55,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
 
   for (const surface of ['terminal', 'vscode'] as const) {
     const ui = await $.ui.mount({ ...HINT, surface })
+    await clock.settle() // the first render outside the desktop app reads the folder and branch
     expect(await ui.find({ type: 'Text', text: '? for shortcuts' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'market-it' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
@@ -125,7 +127,8 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { cu
   on('http.fetch', ($, e) => (fetched.push(e.url), { value: { status: 200, ok: true, headers: {}, text: '{"amount":1.0,"base":"USD","date":"2026-10-29","rates":{"CNY":6.6616}}' } }))
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))
   on('session.cwd', () => ({ value: 'C:/code/hairline' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: 'C:/code/hairline\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git' ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git/HEAD' ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
   on('session.usage', () => ({
     value: { startedAt: Date.now(), cost: { usd: 10 }, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] },
   }))
@@ -149,7 +152,8 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
   on('http.fetch', () => ({ value: { status: 503, ok: false, headers: {}, text: '' } }))
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))
   on('session.cwd', () => ({ value: 'C:/code/hairline' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: 'C:/code/hairline\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git' ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git/HEAD' ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
   on('session.usage', () => ({
     value: { startedAt: Date.now(), cost: { usd: 10 }, context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] },
   }))
@@ -170,7 +174,8 @@ test('draws the line in the desktop band above the prompt, under other mods and 
   mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: null, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))
   on('session.cwd', () => ({ value: 'C:/code/hairline' }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: 'C:/code/hairline\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('fs.stat', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git' ? { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (e.path.replace(/\\/g, "/") === 'C:/code/hairline/.git/HEAD' ? { value: 'ref: refs/heads/main\n' } : { deny: 'ENOENT' }) as never)
   on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] } }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.id', () => ({ value: SESSION_ID }))

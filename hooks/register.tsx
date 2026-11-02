@@ -236,11 +236,9 @@ const SAVED_KEY = 'sessions'
 const SAVED_MAX = 20
 type Saved = { sessionId: string; effort: string | null; pickedEffort?: string | null; pickBase?: Session['pickBase']; stats?: Stats; limitStart?: LimitStart }
 
-const LEGACY_KEY = 'session' // up to 0.27.1, one entry for every session
-
 async function readSaved($: EngineInterface): Promise<Saved[]> {
-  const [list, legacy] = await Promise.all([$.store.get(SAVED_KEY), $.store.get(LEGACY_KEY)])
-  return [...(Array.isArray(list) ? (list as Saved[]) : []), ...(legacy ? [legacy as Saved] : [])]
+  const list = await $.store.get(SAVED_KEY)
+  return Array.isArray(list) ? (list as Saved[]) : []
 }
 
 function save($: EngineInterface): void {
@@ -250,7 +248,6 @@ function save($: EngineInterface): void {
       { sessionId, effort, pickedEffort, pickBase, stats, limitStart } satisfies Saved,
       ...list.filter(saved => saved.sessionId !== sessionId),
     ].slice(0, SAVED_MAX)))
-    .then(() => $.store.delete(LEGACY_KEY))
     .catch(() => {})
 }
 
@@ -328,14 +325,35 @@ async function findNerdFont($: EngineInterface): Promise<boolean> {
   return false
 }
 
-// One process for both values: a spawn costs more than the git work.
+// The working copy's top folder and its HEAD file, found once: the session's directory never moves.
+type Repo = { top: string; head: string | null }
+let repo: Repo | null = null
+
+async function findRepo($: EngineInterface): Promise<Repo> {
+  const cwd = await $.session.cwd()
+  const parts = cwd.replace(/[\\/]+$/, '').split(/[\\/]/)
+  for (let n = parts.length; n > 0; n--) {
+    const top = parts.slice(0, n).join('/')
+    const stat = await $.fs.stat(`${top}/.git`).catch(() => null)
+    if (stat?.kind === 'dir') return { top, head: `${top}/.git/HEAD` }
+    // A worktree's .git is a file that names its git folder.
+    if (stat?.kind === 'file') {
+      const dir = String(await $.fs.read(`${top}/.git`)).match(/^gitdir:\s*(.+)$/m)?.[1]?.trim()
+      if (!dir) return { top, head: null }
+      return { top, head: `${/^([a-z]:)?[\\/]/i.test(dir) ? dir : `${top}/${dir}`}/HEAD` }
+    }
+  }
+  return { top: cwd, head: null }
+}
+
+// Reads the HEAD file, so the 5 s refresh starts no git process. A detached HEAD shows as git shows it.
 async function readLocation($: EngineInterface): Promise<void> {
   try {
-    const cwd = await $.session.cwd()
-    const out = await $.process.run(['git', 'rev-parse', '--show-toplevel', '--abbrev-ref', 'HEAD'], { cwd, timeoutMs: 2_000 })
-    const [top = cwd, branch = null] = out.exitCode === 0 ? out.stdout.trim().split(/\r?\n/) : [cwd]
-    if (basename(top) === session.folder && branch === session.branch) return
-    session.folder = basename(top)
+    repo ??= await findRepo($)
+    const head = repo.head ? await $.fs.read(repo.head).then(text => String(text).trim(), () => null) : null
+    const branch = head === null ? null : (head.match(/^ref:\s*refs\/heads\/(.+)$/)?.[1] ?? 'HEAD')
+    if (basename(repo.top) === session.folder && branch === session.branch) return
+    session.folder = basename(repo.top)
     session.branch = branch
     redraw($)
   } catch {}
@@ -343,26 +361,33 @@ async function readLocation($: EngineInterface): Promise<void> {
 
 const NERD_FONT_KEY = 'nerdFont'
 
-// The last answer draws the first line; the check runs again behind it, for a font added or removed since.
-async function readNerdFont($: EngineInterface): Promise<void> {
-  const cached = await $.store.get(NERD_FONT_KEY).catch(() => undefined)
-  if (typeof cached === 'boolean' && cached !== hasNerdFont) {
-    hasNerdFont = cached
+// Fonts are looked for once; /hairline-fonts looks again after one is installed or removed.
+async function readNerdFont($: EngineInterface, isFresh = false): Promise<boolean> {
+  const cached = isFresh ? undefined : await $.store.get(NERD_FONT_KEY).catch(() => undefined)
+  const found = typeof cached === 'boolean' ? cached : await findNerdFont($)
+  if (found !== cached) await $.store.set(NERD_FONT_KEY, found).catch(() => {})
+  if (found !== hasNerdFont) {
+    hasNerdFont = found
     redraw($)
   }
-  const found = await findNerdFont($)
-  if (found !== cached) void $.store.set(NERD_FONT_KEY, found).catch(() => {})
-  if (found === hasNerdFont) return
-  hasNerdFont = found
-  redraw($)
+  return found
+}
+
+// Folder, branch and the Nerd Font glyphs show only in the terminal, so nothing reads them before it draws.
+let isTerminalStarted = false
+
+function startTerminal($: EngineInterface): void {
+  if (isTerminalStarted) return
+  isTerminalStarted = true
+  void readNerdFont($)
+  void readLocation($)
 }
 
 // Also called from the first render: after /reload-plugins, session.start does not fire.
 // The reads run side by side; each redraws when it lands, so the line fills in as they arrive.
 async function load($: EngineInterface): Promise<void> {
   loaded = true
-  void readNerdFont($)
-  void readLocation($)
+  void $.command.register({ name: 'hairline-fonts', description: 'Look for a Nerd Font again, after installing or removing one' }).catch(() => {})
   void readExchange($)
   void readCompactAt($)
   const [saved, usage, rows] = await Promise.all([
@@ -415,7 +440,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   // The desktop app shows the folder, model and effort next to the prompt already.
   const isDesktop = e.surface === 'desktop'
   const slot = (text: string, width: number) => text.padStart(width)
-  const [model, sessionId] = await Promise.all([$.session.model().catch(() => ''), $.session.id().catch(() => '')])
+  if (!isDesktop) startTerminal($)
+  const [model, sessionId] = await Promise.all([isDesktop ? '' : $.session.model().catch(() => ''), $.session.id().catch(() => '')])
   const { folder, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
   const tokens = counted(stats)
   const pct = context?.percent ?? null
@@ -719,6 +745,10 @@ export const register: Register = (on, options) => {
   settings = readSettings(options)
   let timerStarted = false
 
+  on('command.run', { command: 'hairline-fonts' }, async $ => ({
+    text: (await readNerdFont($, true)) ? 'Nerd Font found: the line shows its glyphs.' : 'No Nerd Font found: the line shows no glyphs.',
+  }))
+
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     session = emptySession()
@@ -726,7 +756,7 @@ export const register: Register = (on, options) => {
     if (!timerStarted) {
       timerStarted = true
       $.clock.every(LOCATION_REFRESH_MS, () => {
-        void readLocation($)
+        if (isTerminalStarted) void readLocation($)
         void readExchange($)
         if (open === 'tokens') redraw($) // the cache countdown changes with no event
       })
