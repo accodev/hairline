@@ -23,10 +23,14 @@ const CURRENCIES = ['USD', 'CAD', 'AUD', 'EUR', 'JPY', 'CNY'] as const
 const RATES_URL = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=' // European Central Bank rates, no key
 // Nerd Font glyphs, private-use code points that any other font draws as a box. Without an
 // installed Nerd Font the phase shows blank cells of the same width, so the line stays still.
-const NERD_GLYPHS = { idle: '\uf04c', tool: '\uf013' } as const // nf-fa-pause, nf-fa-cog
+const NERD_GLYPHS = { tool: '\uf013' } as const // nf-fa-cog
 // The desktop app's monospaced face has no Nerd Font glyphs and Text cannot pick another font,
 // so it gets emoji, which every desktop system font set draws.
-const DESKTOP_GLYPHS = { idle: '\u23f8\ufe0f', tool: '\u2699\ufe0f' } as const // pause, gear
+const DESKTOP_GLYPHS = { tool: '\u2699\ufe0f' } as const // gear
+// A white circle: a geometric shape that terminal fonts and the desktop app's fallback fonts both draw.
+const IDLE_GLYPH = '\u25cb'
+// Outside a reply the speed slot names the phase, in the cells of the number and " t/s".
+const PHASE_WORDS = { idle: 'idle', sending: 'sending', tool: 'running' } as const
 const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
@@ -74,7 +78,6 @@ type Session = {
   tokensPerSecond: number
   phase: 'sending' | 'receiving' | 'tool' | 'idle'
   streaming: boolean
-  hasStreamed: boolean // until the first reply, the speed slot shows a dash
   context: SessionContextUsage | null
   compactAt: number | null
   rateLimits: SessionRateLimit[]
@@ -91,7 +94,7 @@ type Session = {
 
 const emptyStats = (): Stats => ({ input: 0, write: 0, read: 0, output: 0, main: 0, sub: 0, turns: 0, activeMs: 0, costStart: null })
 const emptySession = (): Session => ({
-  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', streaming: false, hasStreamed: false,
+  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', streaming: false,
   context: null, compactAt: null, rateLimits: [], costUsd: null, lastTurn: null, lastTurnUsd: null, lastRequestAt: null, pickedEffort: null, pickBase: null, seen: { effort: null, model: null },
 })
 let session = emptySession()
@@ -454,7 +457,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       case 'tool': return Client
         ? <Client key="hairline-spinner" module="./spinner.tsx" props={{ color: c.warn, mono: isDesktop }} />
         : <Text color={c.warn}>{`${isDesktop ? DESKTOP_GLYPHS.tool : hasNerdFont ? NERD_GLYPHS.tool : ' '} `}</Text>
-      case 'idle': return <Text dimColor>{`${isDesktop ? DESKTOP_GLYPHS.idle : hasNerdFont ? NERD_GLYPHS.idle : ' '} `}</Text>
+      case 'idle': return <Text dimColor>{`${IDLE_GLYPH} `}</Text>
     }
   }
   const Percent = ({ value }: { value: number }) => <Text color={severity(c, value)}>{`${Math.round(value)}%`}</Text>
@@ -598,8 +601,13 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
             {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
             {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
-            <Text dimColor={!session.streaming}>{slot(session.hasStreamed ? String(Math.min(TPS_MAX, tokensPerSecond)) : '-', TPS_WIDTH)}</Text>
-            <Text dimColor>{Client ? ' t/s ' : ' t/s'}</Text>
+            {session.phase === 'receiving' ? (
+              <Box>
+                <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), TPS_WIDTH)}</Text>
+                <Text dimColor> t/s</Text>
+              </Box>
+            ) : <Text dimColor>{slot(PHASE_WORDS[session.phase], TPS_WIDTH + ' t/s'.length)}</Text>}
+            {Client && <Text> </Text>}
             {Client && (
               <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
             )}
@@ -792,7 +800,6 @@ export const register: Register = (on, options) => {
         const piece = chunk.kind === 'text' || chunk.kind === 'thinking' ? chunk.text.length : chunk.kind === 'input' ? chunk.json.length : 0
         if (piece) {
           session.streaming = true
-          session.hasStreamed = true
           if (session.phase !== 'receiving') {
             session.phase = 'receiving'
             redraw($)
