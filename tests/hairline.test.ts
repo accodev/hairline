@@ -198,6 +198,11 @@ test('draws the line in the desktop band above the prompt, under other mods and 
   expect(await desktop.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
   await desktop.post({ press: true }, { in: 'hairline-tokens' })
   expect(await desktop.find({ type: 'Text', text: /^cost/ })).toBeDefined()
+  // The pointer inverts the session ID chip, as it does a terminal Button.
+  await desktop.pointer({ type: 'enter', x: 0, y: 0, in: 'hairline-session-id' })
+  expect((await desktop.drawn({ in: 'hairline-session-id' })).props?.inverse).toBe(true)
+  await desktop.pointer({ type: 'leave', x: 0, y: 0, in: 'hairline-session-id' })
+  expect((await desktop.drawn({ in: 'hairline-session-id' })).props?.inverse).toBeUndefined()
   await desktop.unmount()
 
   for (const [surface, hasSurvey] of [['terminal', false], ['desktop', true]] as const) {
