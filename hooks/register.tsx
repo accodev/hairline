@@ -450,6 +450,10 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const now = Date.now()
 
   const Sep = () => <Text dimColor> · </Text>
+  // The number and " t/s" while a reply streams, the phase's word otherwise: 8 cells either way.
+  const speedSlot = session.phase === 'receiving'
+    ? `${slot(String(Math.min(TPS_MAX, session.tokensPerSecond)), TPS_WIDTH)} t/s`
+    : slot(PHASE_WORDS[session.phase], TPS_WIDTH + ' t/s'.length)
   const Phase = () => {
     switch (session.phase) {
       case 'sending': return <Text color={c.folder}>↑ </Text>
@@ -601,7 +605,9 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
             {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
             {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
-            {session.phase === 'receiving' ? (
+            {Client ? (
+              <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : 0, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
+            ) : session.phase === 'receiving' ? (
               <Box>
                 <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), TPS_WIDTH)}</Text>
                 <Text dimColor> t/s</Text>
