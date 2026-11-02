@@ -7,23 +7,26 @@ export type ChipProps = { text: string; color?: string; dim?: boolean; inverse?:
 
 // The pointer inverts the chip, as it does a terminal Button.
 const Chip: ClientModule<ChipProps, { isHovered: boolean }> = (props, surface) => {
-  const { Text } = surface.elements
+  const { Box, Text } = surface.elements
   const isHovered = surface.state?.isHovered ?? false
   surface.onPointer(e => {
     if (e.type === 'enter' || e.type === 'leave') surface.setState({ isHovered: e.type === 'enter' })
     else if (e.type === 'up' && e.button === 'left') surface.post({ press: true })
   })
+  // A bare Text sits higher than the line around it in the desktop app; in a Box it lines up, as speed.tsx does.
   return (
-    <Text
-      mono
-      tabular
-      size="caption"
-      {...(props.color && { color: props.color })}
-      {...(props.dim && { dimColor: true })}
-      {...((props.inverse || isHovered) && { inverse: true })}
-    >
-      {props.text}
-    </Text>
+    <Box>
+      <Text
+        mono
+        tabular
+        size="caption"
+        {...(props.color && { color: props.color })}
+        {...(props.dim && { dimColor: true })}
+        {...((props.inverse || isHovered) && { inverse: true })}
+      >
+        {props.text}
+      </Text>
+    </Box>
   )
 }
 
