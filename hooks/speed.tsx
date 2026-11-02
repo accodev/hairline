@@ -77,13 +77,13 @@ const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
   // The blocks come from a fallback font of other widths, so each sits in a box one cell wide.
   return props.mono
     ? (
-      <Box width={CELLS + 1}>
+      <Box width={CELLS}>
         {blocks(s.bars, at).map((block, i) => (
           <Box key={`block-${i}`} width={1} overflow="hidden"><Text color={props.color} dimColor={!props.live} mono size="caption">{block}</Text></Box>
         ))}
       </Box>
     )
-    : <Text color={props.color} dimColor={!props.live}>{`${dotLine(s.bars, at)} `}</Text>
+    : <Text color={props.color} dimColor={!props.live}>{dotLine(s.bars, at)}</Text>
 }
 
 export default Speed
