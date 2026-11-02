@@ -25,7 +25,7 @@ function dotLine(samples: number[], top: number): string {
   return line
 }
 
-export type SpeedProps = { rate: number; live: boolean; color: string; frameMs: number }
+export type SpeedProps = { rate: number; live: boolean; color: string; frameMs: number; mono?: boolean }
 type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean }
 
 // Per instance: the terminal and the desktop app each run their own Client of this module.
@@ -55,7 +55,8 @@ const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
       surface.setState({ shown, bars: isSettled ? bars.map(() => 0) : bars, top, sinceShift: isShift ? 0 : sinceShift, ticking: !isSettled })
     }))
   }
-  return <Text color={props.color} dimColor={!props.live}>{`${dotLine(s.bars, s.top)} `}</Text>
+  // The desktop app's own font is proportional; the line around it is monospaced there.
+  return <Text color={props.color} dimColor={!props.live} {...(props.mono && { mono: true, size: 'caption' as const })}>{`${dotLine(s.bars, s.top)} `}</Text>
 }
 
 export default Speed

@@ -52,7 +52,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
 
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:/code/market-it/src' })
 
-  for (const surface of ['terminal', 'desktop'] as const) {
+  for (const surface of ['terminal', 'vscode'] as const) {
     const ui = await $.ui.mount({ ...HINT, surface })
     expect(await ui.find({ type: 'Text', text: '? for shortcuts' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'market-it' })).toBeDefined()
@@ -190,13 +190,16 @@ test('draws the line in the desktop band above the prompt, under other mods and 
 
   const desktop = await band('desktop', false)
   expect(await desktop.find({ type: 'Text', text: 'another mod' })).toBeDefined()
-  expect(await desktop.find({ type: 'Text', text: 'hairline' })).toBeDefined()
+  expect(await desktop.find({ type: 'Text', text: ' t/s' })).toBeDefined()
+  expect(await desktop.find({ type: 'Text', text: 'hairline' })).toBeUndefined() // the app shows the folder already
+  expect((await desktop.find({ type: 'Text', text: ' t/s' }))?.props.mono).toBe(true)
+  expect((await desktop.find({ type: 'Text', text: 'another mod' }))?.props.mono).toBeUndefined() // other mods keep their style
   await desktop.unmount()
 
   for (const [surface, hasSurvey] of [['terminal', false], ['desktop', true]] as const) {
     const ui = await band(surface, hasSurvey)
     expect(await ui.find({ type: 'Text', text: 'another mod' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'hairline' })).toBeUndefined() // the terminal has PromptHint; a survey owns the band
+    expect(await ui.find({ type: 'Text', text: ' t/s' })).toBeUndefined() // the terminal has PromptHint; a survey owns the band
     await ui.unmount()
   }
 })
