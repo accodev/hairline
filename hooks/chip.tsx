@@ -13,9 +13,9 @@ const Chip: ClientModule<ChipProps, { isHovered: boolean }> = (props, surface) =
     if (e.type === 'enter' || e.type === 'leave') surface.setState({ isHovered: e.type === 'enter' })
     else if (e.type === 'up' && e.button === 'left') surface.post({ press: true })
   })
-  // A bare Text sits higher than the line around it in the desktop app; in a Box it lines up, as speed.tsx does.
+  // The desktop app draws a Client region's text 2 px above the line around it; a one-row Box that centers it lines it up.
   return (
-    <Box>
+    <Box height={1} alignItems="center">
       <Text
         mono
         tabular
