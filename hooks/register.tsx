@@ -6,7 +6,6 @@ const PCT_WIDTH = 4 // 100%
 const CONTEXT_WIDTH = 7 // 999k/1M
 const TPS_WIDTH = 4
 const TPS_MAX = 9999
-const TOKENS_WIDTH = 7 // 999.99M, since cache reads take a long session past 100M
 const WARN_FROM = 60
 const BAD_FROM = 85
 const RESET_SHOWN_FROM = 70
@@ -598,23 +597,22 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             <Sep />
             {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
             {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
+            {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
+            <Text dimColor={!session.streaming}>{slot(session.hasStreamed ? String(Math.min(TPS_MAX, tokensPerSecond)) : '-', TPS_WIDTH)}</Text>
+            <Text dimColor>{Client ? ' t/s ' : ' t/s'}</Text>
             {Client && (
               <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
             )}
-            <Text dimColor={!session.streaming}>{slot(session.hasStreamed ? String(Math.min(TPS_MAX, tokensPerSecond)) : '-', TPS_WIDTH)}</Text>
-            <Text dimColor> t/s</Text>
           </Box>
           <Sep />
-          {tokens === 0 ? <Text dimColor>{`${slot('---', TOKENS_WIDTH)} tok`}</Text> : (
+          {tokens === 0 ? <Text dimColor>--- tok</Text> : (
             <Box>
               {isDesktop && Client ? (
                 <Box>
-                <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>
                 <Client key="hairline-tokens" module="./chip.tsx" props={{ text: `${human(tokens)} tok`, inverse: open === 'tokens' }} />
                 </Box>
               ) : (
                 <Box>
-                  <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>
                   <Button
                     key="hairline-tokens"
                     label={`${human(tokens)} tok`}
