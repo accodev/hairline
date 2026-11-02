@@ -395,8 +395,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const c = e.surface === 'terminal' ? TERMINAL_PALETTE : THEME_PALETTE
   // The desktop app shows the folder, model and effort next to the prompt already.
   const isDesktop = e.surface === 'desktop'
-  // Monospaced digits keep the figures still in the desktop app, so the slot padding only leaves gaps there.
-  const slot = (text: string, width: number) => (isDesktop ? text : text.padStart(width))
+  const slot = (text: string, width: number) => text.padStart(width)
   const [model, sessionId] = await Promise.all([$.session.model().catch(() => ''), $.session.id().catch(() => '')])
   const { folder, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
   const tokens = counted(stats)
@@ -552,7 +551,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           <Text dimColor>{` ${slot(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`}</Text>
           <Box>
             <Sep />
-            <Phase />
+            {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
+            {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
             {Client && (
               <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
             )}
@@ -563,7 +563,10 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           {tokens === 0 ? <Text dimColor>{`${slot('---', TOKENS_WIDTH)} tok`}</Text> : (
             <Box>
               {isDesktop && Client ? (
+                <Box>
+                <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>
                 <Client key="hairline-tokens" module="./chip.tsx" props={{ text: `${human(tokens)} tok`, inverse: open === 'tokens' }} />
+                </Box>
               ) : (
                 <Box>
                   <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>

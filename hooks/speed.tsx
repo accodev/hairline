@@ -8,9 +8,21 @@ const SAMPLES = CELLS * 2 // a braille cell holds 2 columns of 4 dots
 // Unicode added the bottom braille row last, so its bits (0x40, 0x80) break the order.
 const DOTS = [[0x01, 0x02, 0x04, 0x40], [0x08, 0x10, 0x20, 0x80]] as const
 
+const MIN_SPAN = 0.2 // of the peak: a steadier stream than that would draw noise as big swings
+// The desktop app's monospaced face has no braille, and its fallback font spaces the dots apart.
+const BLOCKS = '▁▂▃▄▅▆▇█'
+
+// From the lowest recent sample to the peak, so a steady 100 to 140 t/s fills the height. At
+// zero to peak it sat on the top row.
+function scale(samples: number[], top: number, isLive: boolean): (v: number) => number {
+  const low = isLive ? Math.min(...samples) : 0
+  const span = Math.max(top - low, top * MIN_SPAN)
+  return v => Math.min(1, Math.max(0, (v - low) / span))
+}
+
 // Each column also lights the rows up to the previous sample, so steep steps stay joined.
-function dotLine(samples: number[], top: number): string {
-  const rows = samples.map(v => 3 - Math.min(3, Math.round((v / top) * 3)))
+function dotLine(samples: number[], at: (v: number) => number): string {
+  const rows = samples.map(v => 3 - Math.round(at(v) * 3))
   let line = ''
   for (let cell = 0; cell < CELLS; cell++) {
     let bits = 0
@@ -25,6 +37,11 @@ function dotLine(samples: number[], top: number): string {
   return line
 }
 
+// One cell per 2 samples, as the braille line has.
+function blocks(samples: number[], at: (v: number) => number): string[] {
+  return Array.from({ length: CELLS }, (_, cell) => BLOCKS[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (BLOCKS.length - 1))]!)
+}
+
 export type SpeedProps = { rate: number; live: boolean; color: string; frameMs: number; mono?: boolean }
 type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean }
 
@@ -33,7 +50,7 @@ const targets = new WeakMap<object, number>()
 const stops = new WeakMap<object, () => void>()
 
 const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
-  const { Text } = surface.elements
+  const { Box, Text } = surface.elements
   targets.set(surface, props.live ? props.rate : 0)
   const s: Anim = surface.state ?? { shown: 0, bars: Array(SAMPLES).fill(0), top: 1, sinceShift: 0, ticking: false }
   if (props.live && !s.ticking) {
@@ -55,8 +72,18 @@ const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
       surface.setState({ shown, bars: isSettled ? bars.map(() => 0) : bars, top, sinceShift: isShift ? 0 : sinceShift, ticking: !isSettled })
     }))
   }
+  const at = scale(s.bars, s.top, props.live)
   // The desktop app's own font is proportional; the line around it is monospaced there.
-  return <Text color={props.color} dimColor={!props.live} {...(props.mono && { mono: true, size: 'caption' as const })}>{`${dotLine(s.bars, s.top)} `}</Text>
+  // The blocks come from a fallback font of other widths, so each sits in a box one cell wide.
+  return props.mono
+    ? (
+      <Box width={CELLS + 1}>
+        {blocks(s.bars, at).map((block, i) => (
+          <Box key={`block-${i}`} width={1} overflow="hidden"><Text color={props.color} dimColor={!props.live} mono size="caption">{block}</Text></Box>
+        ))}
+      </Box>
+    )
+    : <Text color={props.color} dimColor={!props.live}>{`${dotLine(s.bars, at)} `}</Text>
 }
 
 export default Speed
