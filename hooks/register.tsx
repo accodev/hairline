@@ -23,9 +23,11 @@ const HOUR_MS = 3_600_000
 const CURRENCIES = ['USD', 'CAD', 'AUD', 'EUR', 'JPY', 'CNY'] as const
 const RATES_URL = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=' // European Central Bank rates, no key
 // Nerd Font glyphs, private-use code points that any other font draws as a box. Without an
-// installed Nerd Font, and always in the desktop app, whose monospaced face has none of them,
-// the phase shows blank cells of the same width, so the line stays still.
+// installed Nerd Font the phase shows blank cells of the same width, so the line stays still.
 const NERD_GLYPHS = { idle: '\uf04c', tool: '\uf013' } as const // nf-fa-pause, nf-fa-cog
+// The desktop app's monospaced face has no Nerd Font glyphs and Text cannot pick another font,
+// so it gets emoji, which every desktop system font set draws.
+const DESKTOP_GLYPHS = { idle: '\u23f8\ufe0f', tool: '\u2699\ufe0f' } as const // pause, gear
 const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
@@ -408,8 +410,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       case 'receiving': return <Text color={c.ok}>↓ </Text>
       case 'tool': return Client
         ? <Client key="hairline-spinner" module="./spinner.tsx" props={{ color: c.warn, mono: isDesktop }} />
-        : <Text color={c.warn}>{`${hasNerdFont && !isDesktop ? NERD_GLYPHS.tool : ' '} `}</Text>
-      case 'idle': return <Text dimColor>{`${hasNerdFont && !isDesktop ? NERD_GLYPHS.idle : ' '} `}</Text>
+        : <Text color={c.warn}>{`${isDesktop ? DESKTOP_GLYPHS.tool : hasNerdFont ? NERD_GLYPHS.tool : ' '} `}</Text>
+      case 'idle': return <Text dimColor>{`${isDesktop ? DESKTOP_GLYPHS.idle : hasNerdFont ? NERD_GLYPHS.idle : ' '} `}</Text>
     }
   }
   const Percent = ({ value }: { value: number }) => <Text color={severity(c, value)}>{`${Math.round(value)}%`}</Text>
