@@ -164,3 +164,39 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
   expect(await ui.find({ type: 'Text', text: /^~.*9[.,]00/ })).toBeDefined() // 10 USD at the 0.9 setting
   await ui.unmount()
 })
+
+test('draws the line in the desktop band above the prompt, under other mods and never over a survey', async ($, on) => {
+  mock.clock(on)
+  mock.store(on, {})
+  on('session.start', () => ({ cwd: 'C:/code/hairline' }))
+  on('session.cwd', () => ({ value: 'C:/code/hairline' }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: 'C:/code/hairline\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] } }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.id', () => ({ value: SESSION_ID }))
+  on('config.list', () => ({ value: [] }))
+  // Another mod's rows in the band, beneath hairline in the chain.
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['another mod'] }))
+
+  await $.session.start({ surface: 'desktop', isInteractive: true, cwd: 'C:/code/hairline' })
+  const band = (surface: 'desktop' | 'terminal', hasSurvey: boolean) => $.ui.mount({
+    plugin: 'hairline',
+    component: 'AbovePrompt',
+    requestId: 'AbovePrompt',
+    surface,
+    viewport: { columns: 160, rows: 40 },
+    props: { hasSurvey, isWorking: false, maxRows: 20, bodyColumns: 155, scroll: { offset: 0, bodyRows: 19 }, view: {} },
+  } as never)
+
+  const desktop = await band('desktop', false)
+  expect(await desktop.find({ type: 'Text', text: 'another mod' })).toBeDefined()
+  expect(await desktop.find({ type: 'Text', text: 'hairline' })).toBeDefined()
+  await desktop.unmount()
+
+  for (const [surface, hasSurvey] of [['terminal', false], ['desktop', true]] as const) {
+    const ui = await band(surface, hasSurvey)
+    expect(await ui.find({ type: 'Text', text: 'another mod' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'hairline' })).toBeUndefined() // the terminal has PromptHint; a survey owns the band
+    await ui.unmount()
+  }
+})

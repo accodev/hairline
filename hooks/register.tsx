@@ -1,4 +1,4 @@
-import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, SessionContextUsage, SessionRateLimit } from 'claude-code'
+import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, RenderElement, RenderInput, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 const BAR_CELLS = 8
 // Fixed widths, so a changing figure never moves the ones after it on the line.
@@ -340,6 +340,296 @@ async function load($: EngineInterface): Promise<void> {
   redraw($)
 }
 
+// The line and its panels, under whatever the hooks beneath drew: the engine's hint on the terminal,
+// another mod's rows in the desktop app's band above the prompt.
+async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'AbovePrompt'>, engineHint: RenderElement | null | undefined) {
+  if (!loaded) void load($)
+  const elements = $.ui.resolve(e)
+  const { Box, Text, Button } = elements
+  const Client = 'Client' in elements ? elements.Client : null // only the terminal and the desktop app run Client modules
+  const c = e.surface === 'terminal' ? TERMINAL_PALETTE : THEME_PALETTE
+  const [model, sessionId] = await Promise.all([$.session.model().catch(() => ''), $.session.id().catch(() => '')])
+  const { folder, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
+  const tokens = counted(stats)
+  const pct = context?.percent ?? null
+  const now = Date.now()
+
+  const Sep = () => <Text dimColor> · </Text>
+  const idleGlyph = IDLE_GLYPHS[settings.nerdFont && e.surface === 'terminal' ? 'nerd' : 'plain']
+  const Phase = () => {
+    switch (session.phase) {
+      case 'sending': return <Text color={c.folder}>↑ </Text>
+      case 'receiving': return <Text color={c.ok}>↓ </Text>
+      case 'tool': return Client
+        ? <Client key="hairline-spinner" module="./spinner.tsx" props={{ color: c.warn }} />
+        : <Text color={c.warn}>{`${TOOL_GLYPH} `}</Text>
+      case 'idle': return <Text dimColor>{`${idleGlyph} `}</Text>
+    }
+  }
+  const Percent = ({ value }: { value: number }) => <Text color={severity(c, value)}>{`${Math.round(value)}%`}</Text>
+
+  // The desktop app draws line glyphs wider than a cell, so it gets painted boxes.
+  const filled = pct === null ? 0 : filledCells(pct)
+  // In the last cell the marker would only repeat the bar's own end, so it hides there.
+  const compactCell = compactAt === null ? BAR_CELLS : Math.floor((compactAt / 100) * BAR_CELLS)
+  const markerCell = compactCell < BAR_CELLS - 1 ? compactCell : -1
+  const cells = Array.from({ length: BAR_CELLS }, (_, i) => ({
+    isFilled: i < filled,
+    isMarker: i === markerCell,
+    color: rampColor(c, ((i + 0.5) / BAR_CELLS) * 100, compactAt),
+  }))
+  const contextBar = e.surface === 'terminal' ? (
+    <Box>
+      {cells.map((cell, i) =>
+        cell.isMarker ? <Text key={`cell-${i}`} dimColor color={cell.isFilled ? cell.color : c.marker}>┃</Text>
+        : cell.isFilled ? <Text key={`cell-${i}`} color={cell.color}>━</Text>
+        : <Text key={`cell-${i}`} dimColor color={cell.color}>─</Text>)}
+    </Box>
+  ) : (
+    <Box width={BAR_CELLS} height={1} overflow="hidden">
+      {cells.map((cell, i) => (
+        <Box key={`cell-${i}`} width={1} height={1} backgroundColor={cell.isMarker ? c.marker : cell.isFilled ? cell.color : c.track} />
+      ))}
+    </Box>
+  )
+
+  const windows = RATE_LIMIT_WINDOWS.map(({ kind, label }) => {
+    const w = rateLimits.find(l => l.kind === kind)
+    return w && (
+      <Box key={kind}>
+        <Sep />
+        <Text dimColor>{`${label} `}</Text>
+        <Percent value={w.percentUsed} />
+        {w.percentUsed >= RESET_SHOWN_FROM && w.resetsAt && <Text dimColor>{` ↻${untilReset(w.resetsAt)}`}</Text>}
+      </Box>
+    )
+  })
+
+  const Row = ({ label, children }: { label: string; children: RenderChildren }) => (
+    <Box flexDirection="row" paddingLeft={2}>
+      <Text dimColor>{label.padEnd(8)}</Text>
+      {children}
+    </Box>
+  )
+  const Fig = ({ value, unit }: { value: string; unit?: string }) => (
+    <Box><Text>{value}</Text>{unit && <Text dimColor>{` ${unit}`}</Text>}</Box>
+  )
+  const panel = () => {
+    const { costUsd, lastTurn, lastTurnUsd, lastRequestAt, limitStart } = session
+    const hours = stats.activeMs / HOUR_MS
+    const trackedUsd = costUsd !== null && stats.costStart !== null ? costUsd - stats.costStart : null
+    const hit = stats.read / Math.max(1, stats.read + stats.write + stats.input)
+    const cacheLeft = lastRequestAt === null ? null : settings.cacheTtlMinutes * 60_000 - (now - lastRequestAt)
+    const burns = RATE_LIMIT_WINDOWS.flatMap(({ kind, label }) => {
+      const w = rateLimits.find(l => l.kind === kind)
+      return w ? [{ kind, label, w }] : []
+    }).map(({ kind, label, w }, i) => {
+      const start = limitStart[kind]
+      const spanHours = start ? (now - start.at) / HOUR_MS : 0
+      const perHour = start && spanHours >= BURN_MIN_HOURS ? (w.percentUsed - start.pct) / spanHours : 0
+      const fullInMs = perHour > 0 ? ((100 - w.percentUsed) / perHour) * HOUR_MS : null
+      const resetsInMs = w.resetsAt ? Date.parse(w.resetsAt) - now : null
+      return (
+        <Box key={`burn-${kind}`}>
+          {i > 0 && <Sep />}
+          <Text dimColor>{`${label} `}</Text>
+          <Percent value={w.percentUsed} />
+          {perHour > 0 ? (
+            <Box>
+              <Text dimColor>{` +${perHour.toFixed(1)}%/h`}</Text>
+              {/* Only a limit that fills before its reset needs a word. */}
+              {(fullInMs === null || resetsInMs === null || fullInMs < resetsInMs) && <Text color={c.warn}>{`, full in ${duration(fullInMs ?? 0)}`}</Text>}
+            </Box>
+          ) : <Text dimColor>{spanHours < BURN_MIN_HOURS ? ' measuring' : ' steady'}</Text>}
+        </Box>
+      )
+    })
+    return (
+      <Box flexDirection="column">
+        <Row label="cost">
+          {costUsd === null ? <Text dimColor>not reported</Text> : (
+            <Box>
+              <Fig value={money(costUsd)} />
+              {trackedUsd !== null && hours >= BURN_MIN_HOURS && <Box><Sep /><Fig value={money(trackedUsd / hours)} unit="per active hour" /></Box>}
+              {lastTurnUsd !== null && <Box><Sep /><Text dimColor>last turn </Text><Fig value={money(lastTurnUsd)} /></Box>}
+            </Box>
+          )}
+        </Row>
+        <Row label="tokens">
+          <Fig value={human(stats.input)} unit="in" /><Sep />
+          <Fig value={human(stats.write)} unit="cache write" /><Sep />
+          <Fig value={human(stats.read)} unit="cache read" /><Sep />
+          <Fig value={human(stats.output)} unit="out" /><Sep />
+          <Fig value={`${Math.round(hit * 100)}%`} unit="cache hit" />
+          {cacheLeft !== null && (
+            <Box>
+              <Sep />
+              {cacheLeft > 0
+                ? <Text dimColor>{`cache warm ${duration(cacheLeft)}`}</Text>
+                : <Text color={c.warn}>cache cold</Text>}
+            </Box>
+          )}
+        </Row>
+        <Row label="split">
+          <Fig value={`${Math.round((stats.main / Math.max(1, stats.main + stats.sub)) * 100)}%`} unit="main" /><Sep />
+          <Fig value={`${Math.round((stats.sub / Math.max(1, stats.main + stats.sub)) * 100)}%`} unit="subagents" /><Sep />
+          <Fig value={String(stats.turns)} unit="turns" />
+          {stats.activeMs > 0 && <Box><Sep /><Fig value={duration(stats.activeMs)} unit="active" /></Box>}
+          {lastTurn && <Box><Sep /><Text dimColor>last turn </Text><Fig value={human(lastTurn.tokens)} unit={`tok in ${duration(lastTurn.ms)}`} /></Box>}
+        </Row>
+        {burns.length > 0 && <Row label="limits">{burns}</Row>}
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="column">
+      {engineHint}
+      <Box flexDirection="row" justifyContent="space-between" width="100%" overflow="hidden">
+        <Box flexDirection="row" flexShrink={1} overflow="hidden">
+          {/* Only the location shrinks, so the figures never wrap to a second row. */}
+          <Box flexDirection="row" flexShrink={1} overflow="hidden">
+            <Text color={c.folder} wrap="truncate-end">{folder}</Text>
+            {branch && <Text dimColor>:</Text>}
+            {branch && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
+          </Box>
+          <Box flexDirection="row" flexShrink={0}>
+          <Text>  </Text>
+          {contextBar}
+          {pct === null
+            ? <Text dimColor>{` ${'--%'.padStart(PCT_WIDTH)}`}</Text>
+            : <Text color={rampColor(c, pct, compactAt)}>{` ${`${Math.round(pct)}%`.padStart(PCT_WIDTH)}`}</Text>}
+          <Text dimColor>{` ${(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`).padStart(CONTEXT_WIDTH)}`}</Text>
+          <Box>
+            <Sep />
+            <Phase />
+            {Client && (
+              <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate) }} />
+            )}
+            <Text dimColor={!session.streaming}>{(session.hasStreamed ? String(Math.min(TPS_MAX, tokensPerSecond)) : '-').padStart(TPS_WIDTH)}</Text>
+            <Text dimColor> t/s</Text>
+          </Box>
+          <Sep />
+          {tokens === 0 ? <Text dimColor>{`${'---'.padStart(TOKENS_WIDTH)} tok`}</Text> : (
+            <Box>
+              <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>
+              <Button
+                key="hairline-tokens"
+                label={`${human(tokens)} tok`}
+                plain
+                onPress={() => {
+                  toggle($, 'tokens')
+                }}
+              >
+                <Text inverse={open === 'tokens'}>{`${human(tokens)} tok`}</Text>
+              </Button>
+            </Box>
+          )}
+          {windows}
+          </Box>
+        </Box>
+        <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+          {model && (modelRow ? (
+            <Button
+              key="hairline-model"
+              label={modelLabel(model)}
+              plain
+              onPress={async () => {
+                await $.config.list().then(readRows, () => {})
+                toggle($, 'model')
+              }}
+            >
+              <Text inverse={open === 'model'}>{modelLabel(model)}</Text>
+            </Button>
+          ) : <Text>{modelLabel(model)}</Text>)}
+          {model && effort && (
+            <Box>
+              <Text> </Text>
+              <Button
+                key="hairline-effort"
+                label={effort}
+                plain
+                onPress={async () => {
+                  await $.config.list().then(readRows, () => {})
+                  toggle($, 'effort')
+                }}
+              >
+                <Text inverse={open === 'effort'} color={c.effort[EFFORT_LEVELS.indexOf(effort)]} dimColor={!EFFORT_LEVELS.includes(effort)}>{effort}</Text>
+              </Button>
+            </Box>
+          )}
+          {sessionId && (
+            <Box>
+              {model && <Sep />}
+              <Button
+                key="hairline-session-id"
+                label={sessionId.slice(0, 8)}
+                plain
+                onPress={async press => {
+                  const r = await $.ui.copy({ text: sessionId, surface: press.surface })
+                  $.ui.toast(r.isCopied ? `session id copied: ${sessionId}` : `session id: ${sessionId}`)
+                }}
+              >
+                <Text color={c.track} dimColor>{sessionId.slice(0, 8)}</Text>
+              </Button>
+            </Box>
+          )}
+        </Box>
+      </Box>
+      {open === 'model' && modelRow && (
+        <Box flexDirection="row" justifyContent="flex-end" width="100%" flexWrap="wrap">
+          <Text dimColor>model </Text>
+          {modelRow.options.map(option => (
+            <Box key={`model-${option}`}>
+              <Text> </Text>
+              <Button
+                key={`hairline-model-${option}`}
+                label={option}
+                plain
+                onPress={async () => {
+                  setOpen($, null)
+                  const { deny } = await $.config.set({ key: 'model', value: option })
+                  if (!deny && modelRow) modelRow = { ...modelRow, value: option }
+                  $.ui.toast(deny ? `model not changed: ${deny}` : `model ${option}`)
+                  redraw($)
+                }}
+              >
+                <Text bold={option === modelRow!.value} underline={option === modelRow!.value} dimColor={option !== modelRow!.value}>{option}</Text>
+              </Button>
+            </Box>
+          ))}
+        </Box>
+      )}
+      {open === 'effort' && effort && (
+        <Box flexDirection="row" justifyContent="flex-end" width="100%">
+          <Text dimColor>effort </Text>
+          {EFFORT_LEVELS.map((level, i) => (
+            <Box key={`effort-${level}`}>
+              <Text> </Text>
+              <Button
+                key={`hairline-effort-${level}`}
+                label={level}
+                plain
+                onPress={() => {
+                  session.pickedEffort = level
+                  session.pickBase = { ...session.seen }
+                  setOpen($, null)
+                  setEffort($, level)
+                  save($)
+                  $.ui.toast(`effort ${level} from your next message`)
+                }}
+              >
+                <Text color={c.effort[i]} bold={level === effort} underline={level === effort}>{level}</Text>
+              </Button>
+            </Box>
+          ))}
+        </Box>
+      )}
+      {open === 'tokens' && tokens > 0 && panel()}
+    </Box>
+  )
+}
+
 export const register: Register = (on, options) => {
   settings = readSettings(options)
   let timerStarted = false
@@ -465,292 +755,12 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const engineHint = await next(e)
-    if (!loaded) void load($)
-    const elements = $.ui.resolve(e)
-    const { Box, Text, Button } = elements
-    const Client = 'Client' in elements ? elements.Client : null // only the terminal and the desktop app run Client modules
-    const c = e.surface === 'terminal' ? TERMINAL_PALETTE : THEME_PALETTE
-    const [model, sessionId] = await Promise.all([$.session.model().catch(() => ''), $.session.id().catch(() => '')])
-    const { folder, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
-    const tokens = counted(stats)
-    const pct = context?.percent ?? null
-    const now = Date.now()
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => drawLine($, e, await next(e)))
 
-    const Sep = () => <Text dimColor> · </Text>
-    const idleGlyph = IDLE_GLYPHS[settings.nerdFont && e.surface === 'terminal' ? 'nerd' : 'plain']
-    const Phase = () => {
-      switch (session.phase) {
-        case 'sending': return <Text color={c.folder}>↑ </Text>
-        case 'receiving': return <Text color={c.ok}>↓ </Text>
-        case 'tool': return Client
-          ? <Client key="hairline-spinner" module="./spinner.tsx" props={{ color: c.warn }} />
-          : <Text color={c.warn}>{`${TOOL_GLYPH} `}</Text>
-        case 'idle': return <Text dimColor>{`${idleGlyph} `}</Text>
-      }
-    }
-    const Percent = ({ value }: { value: number }) => <Text color={severity(c, value)}>{`${Math.round(value)}%`}</Text>
-
-    // The desktop app draws line glyphs wider than a cell, so it gets painted boxes.
-    const filled = pct === null ? 0 : filledCells(pct)
-    // In the last cell the marker would only repeat the bar's own end, so it hides there.
-    const compactCell = compactAt === null ? BAR_CELLS : Math.floor((compactAt / 100) * BAR_CELLS)
-    const markerCell = compactCell < BAR_CELLS - 1 ? compactCell : -1
-    const cells = Array.from({ length: BAR_CELLS }, (_, i) => ({
-      isFilled: i < filled,
-      isMarker: i === markerCell,
-      color: rampColor(c, ((i + 0.5) / BAR_CELLS) * 100, compactAt),
-    }))
-    const contextBar = e.surface === 'terminal' ? (
-      <Box>
-        {cells.map((cell, i) =>
-          cell.isMarker ? <Text key={`cell-${i}`} dimColor color={cell.isFilled ? cell.color : c.marker}>┃</Text>
-          : cell.isFilled ? <Text key={`cell-${i}`} color={cell.color}>━</Text>
-          : <Text key={`cell-${i}`} dimColor color={cell.color}>─</Text>)}
-      </Box>
-    ) : (
-      <Box width={BAR_CELLS} height={1} overflow="hidden">
-        {cells.map((cell, i) => (
-          <Box key={`cell-${i}`} width={1} height={1} backgroundColor={cell.isMarker ? c.marker : cell.isFilled ? cell.color : c.track} />
-        ))}
-      </Box>
-    )
-
-    const windows = RATE_LIMIT_WINDOWS.map(({ kind, label }) => {
-      const w = rateLimits.find(l => l.kind === kind)
-      return w && (
-        <Box key={kind}>
-          <Sep />
-          <Text dimColor>{`${label} `}</Text>
-          <Percent value={w.percentUsed} />
-          {w.percentUsed >= RESET_SHOWN_FROM && w.resetsAt && <Text dimColor>{` ↻${untilReset(w.resetsAt)}`}</Text>}
-        </Box>
-      )
-    })
-
-    const Row = ({ label, children }: { label: string; children: RenderChildren }) => (
-      <Box flexDirection="row" paddingLeft={2}>
-        <Text dimColor>{label.padEnd(8)}</Text>
-        {children}
-      </Box>
-    )
-    const Fig = ({ value, unit }: { value: string; unit?: string }) => (
-      <Box><Text>{value}</Text>{unit && <Text dimColor>{` ${unit}`}</Text>}</Box>
-    )
-    const panel = () => {
-      const { costUsd, lastTurn, lastTurnUsd, lastRequestAt, limitStart } = session
-      const hours = stats.activeMs / HOUR_MS
-      const trackedUsd = costUsd !== null && stats.costStart !== null ? costUsd - stats.costStart : null
-      const hit = stats.read / Math.max(1, stats.read + stats.write + stats.input)
-      const cacheLeft = lastRequestAt === null ? null : settings.cacheTtlMinutes * 60_000 - (now - lastRequestAt)
-      const burns = RATE_LIMIT_WINDOWS.flatMap(({ kind, label }) => {
-        const w = rateLimits.find(l => l.kind === kind)
-        return w ? [{ kind, label, w }] : []
-      }).map(({ kind, label, w }, i) => {
-        const start = limitStart[kind]
-        const spanHours = start ? (now - start.at) / HOUR_MS : 0
-        const perHour = start && spanHours >= BURN_MIN_HOURS ? (w.percentUsed - start.pct) / spanHours : 0
-        const fullInMs = perHour > 0 ? ((100 - w.percentUsed) / perHour) * HOUR_MS : null
-        const resetsInMs = w.resetsAt ? Date.parse(w.resetsAt) - now : null
-        return (
-          <Box key={`burn-${kind}`}>
-            {i > 0 && <Sep />}
-            <Text dimColor>{`${label} `}</Text>
-            <Percent value={w.percentUsed} />
-            {perHour > 0 ? (
-              <Box>
-                <Text dimColor>{` +${perHour.toFixed(1)}%/h`}</Text>
-                {/* Only a limit that fills before its reset needs a word. */}
-                {(fullInMs === null || resetsInMs === null || fullInMs < resetsInMs) && <Text color={c.warn}>{`, full in ${duration(fullInMs ?? 0)}`}</Text>}
-              </Box>
-            ) : <Text dimColor>{spanHours < BURN_MIN_HOURS ? ' measuring' : ' steady'}</Text>}
-          </Box>
-        )
-      })
-      return (
-        <Box flexDirection="column">
-          <Row label="cost">
-            {costUsd === null ? <Text dimColor>not reported</Text> : (
-              <Box>
-                <Fig value={money(costUsd)} />
-                {trackedUsd !== null && hours >= BURN_MIN_HOURS && <Box><Sep /><Fig value={money(trackedUsd / hours)} unit="per active hour" /></Box>}
-                {lastTurnUsd !== null && <Box><Sep /><Text dimColor>last turn </Text><Fig value={money(lastTurnUsd)} /></Box>}
-              </Box>
-            )}
-          </Row>
-          <Row label="tokens">
-            <Fig value={human(stats.input)} unit="in" /><Sep />
-            <Fig value={human(stats.write)} unit="cache write" /><Sep />
-            <Fig value={human(stats.read)} unit="cache read" /><Sep />
-            <Fig value={human(stats.output)} unit="out" /><Sep />
-            <Fig value={`${Math.round(hit * 100)}%`} unit="cache hit" />
-            {cacheLeft !== null && (
-              <Box>
-                <Sep />
-                {cacheLeft > 0
-                  ? <Text dimColor>{`cache warm ${duration(cacheLeft)}`}</Text>
-                  : <Text color={c.warn}>cache cold</Text>}
-              </Box>
-            )}
-          </Row>
-          <Row label="split">
-            <Fig value={`${Math.round((stats.main / Math.max(1, stats.main + stats.sub)) * 100)}%`} unit="main" /><Sep />
-            <Fig value={`${Math.round((stats.sub / Math.max(1, stats.main + stats.sub)) * 100)}%`} unit="subagents" /><Sep />
-            <Fig value={String(stats.turns)} unit="turns" />
-            {stats.activeMs > 0 && <Box><Sep /><Fig value={duration(stats.activeMs)} unit="active" /></Box>}
-            {lastTurn && <Box><Sep /><Text dimColor>last turn </Text><Fig value={human(lastTurn.tokens)} unit={`tok in ${duration(lastTurn.ms)}`} /></Box>}
-          </Row>
-          {burns.length > 0 && <Row label="limits">{burns}</Row>}
-        </Box>
-      )
-    }
-
-    return (
-      <Box flexDirection="column">
-        {engineHint}
-        <Box flexDirection="row" justifyContent="space-between" width="100%" overflow="hidden">
-          <Box flexDirection="row" flexShrink={1} overflow="hidden">
-            {/* Only the location shrinks, so the figures never wrap to a second row. */}
-            <Box flexDirection="row" flexShrink={1} overflow="hidden">
-              <Text color={c.folder} wrap="truncate-end">{folder}</Text>
-              {branch && <Text dimColor>:</Text>}
-              {branch && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
-            </Box>
-            <Box flexDirection="row" flexShrink={0}>
-            <Text>  </Text>
-            {contextBar}
-            {pct === null
-              ? <Text dimColor>{` ${'--%'.padStart(PCT_WIDTH)}`}</Text>
-              : <Text color={rampColor(c, pct, compactAt)}>{` ${`${Math.round(pct)}%`.padStart(PCT_WIDTH)}`}</Text>}
-            <Text dimColor>{` ${(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`).padStart(CONTEXT_WIDTH)}`}</Text>
-            <Box>
-              <Sep />
-              <Phase />
-              {Client && (
-                <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate) }} />
-              )}
-              <Text dimColor={!session.streaming}>{(session.hasStreamed ? String(Math.min(TPS_MAX, tokensPerSecond)) : '-').padStart(TPS_WIDTH)}</Text>
-              <Text dimColor> t/s</Text>
-            </Box>
-            <Sep />
-            {tokens === 0 ? <Text dimColor>{`${'---'.padStart(TOKENS_WIDTH)} tok`}</Text> : (
-              <Box>
-                <Text>{''.padStart(TOKENS_WIDTH - human(tokens).length)}</Text>
-                <Button
-                  key="hairline-tokens"
-                  label={`${human(tokens)} tok`}
-                  plain
-                  onPress={() => {
-                    toggle($, 'tokens')
-                  }}
-                >
-                  <Text inverse={open === 'tokens'}>{`${human(tokens)} tok`}</Text>
-                </Button>
-              </Box>
-            )}
-            {windows}
-            </Box>
-          </Box>
-          <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
-            {model && (modelRow ? (
-              <Button
-                key="hairline-model"
-                label={modelLabel(model)}
-                plain
-                onPress={async () => {
-                  await $.config.list().then(readRows, () => {})
-                  toggle($, 'model')
-                }}
-              >
-                <Text inverse={open === 'model'}>{modelLabel(model)}</Text>
-              </Button>
-            ) : <Text>{modelLabel(model)}</Text>)}
-            {model && effort && (
-              <Box>
-                <Text> </Text>
-                <Button
-                  key="hairline-effort"
-                  label={effort}
-                  plain
-                  onPress={async () => {
-                    await $.config.list().then(readRows, () => {})
-                    toggle($, 'effort')
-                  }}
-                >
-                  <Text inverse={open === 'effort'} color={c.effort[EFFORT_LEVELS.indexOf(effort)]} dimColor={!EFFORT_LEVELS.includes(effort)}>{effort}</Text>
-                </Button>
-              </Box>
-            )}
-            {sessionId && (
-              <Box>
-                {model && <Sep />}
-                <Button
-                  key="hairline-session-id"
-                  label={sessionId.slice(0, 8)}
-                  plain
-                  onPress={async press => {
-                    const r = await $.ui.copy({ text: sessionId, surface: press.surface })
-                    $.ui.toast(r.isCopied ? `session id copied: ${sessionId}` : `session id: ${sessionId}`)
-                  }}
-                >
-                  <Text color={c.track} dimColor>{sessionId.slice(0, 8)}</Text>
-                </Button>
-              </Box>
-            )}
-          </Box>
-        </Box>
-        {open === 'model' && modelRow && (
-          <Box flexDirection="row" justifyContent="flex-end" width="100%" flexWrap="wrap">
-            <Text dimColor>model </Text>
-            {modelRow.options.map(option => (
-              <Box key={`model-${option}`}>
-                <Text> </Text>
-                <Button
-                  key={`hairline-model-${option}`}
-                  label={option}
-                  plain
-                  onPress={async () => {
-                    setOpen($, null)
-                    const { deny } = await $.config.set({ key: 'model', value: option })
-                    if (!deny && modelRow) modelRow = { ...modelRow, value: option }
-                    $.ui.toast(deny ? `model not changed: ${deny}` : `model ${option}`)
-                    redraw($)
-                  }}
-                >
-                  <Text bold={option === modelRow!.value} underline={option === modelRow!.value} dimColor={option !== modelRow!.value}>{option}</Text>
-                </Button>
-              </Box>
-            ))}
-          </Box>
-        )}
-        {open === 'effort' && effort && (
-          <Box flexDirection="row" justifyContent="flex-end" width="100%">
-            <Text dimColor>effort </Text>
-            {EFFORT_LEVELS.map((level, i) => (
-              <Box key={`effort-${level}`}>
-                <Text> </Text>
-                <Button
-                  key={`hairline-effort-${level}`}
-                  label={level}
-                  plain
-                  onPress={() => {
-                    session.pickedEffort = level
-                    session.pickBase = { ...session.seen }
-                    setOpen($, null)
-                    setEffort($, level)
-                    save($)
-                    $.ui.toast(`effort ${level} from your next message`)
-                  }}
-                >
-                  <Text color={c.effort[i]} bold={level === effort} underline={level === effort}>{level}</Text>
-                </Button>
-              </Box>
-            ))}
-          </Box>
-        )}
-        {open === 'tokens' && tokens > 0 && panel()}
-      </Box>
-    )
+  // The desktop app never asks for PromptHint, so the line goes in this band there. A survey owns it
+  // while it shows.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const below = await next(e)
+    return e.surface === 'desktop' && !e.props.hasSurvey ? drawLine($, e, below) : below
   })
 }
