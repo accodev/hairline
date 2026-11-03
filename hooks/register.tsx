@@ -33,6 +33,9 @@ const DESKTOP_GLYPHS = { tool: '\u2699\ufe0f' } as const // gear
 const IDLE_GLYPH = '\u25cb'
 // Outside a reply the speed slot names the phase, in the cells of the number and " t/s".
 const PHASE_WORDS = { idle: 'idle', sending: 'sending', tool: 'running' } as const
+const SLOT_WIDTH = TPS_WIDTH + ' t/s'.length
+// The slot, its gap and speed.tsx's 6 cells: a running tool's name and argument fill them all.
+const TOOL_WIDTH = SLOT_WIDTH + 1 + 6
 const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
@@ -79,6 +82,7 @@ type Session = {
   limitStart: LimitStart
   tokensPerSecond: number
   phase: 'sending' | 'receiving' | 'tool' | 'idle'
+  tools: { name: string; arg: string }[] // the main loop's tool calls since the last request ended
   streaming: boolean
   context: SessionContextUsage | null
   compactAt: number | null
@@ -96,7 +100,7 @@ type Session = {
 
 const emptyStats = (): Stats => ({ input: 0, write: 0, read: 0, output: 0, main: 0, sub: 0, turns: 0, activeMs: 0, costStart: null })
 const emptySession = (): Session => ({
-  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', streaming: false,
+  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', tools: [], streaming: false,
   context: null, compactAt: null, rateLimits: [], costUsd: null, lastTurn: null, lastTurnUsd: null, lastRequestAt: null, pickedEffort: null, pickBase: null, seen: { effort: null, model: null },
 })
 let session = emptySession()
@@ -227,6 +231,32 @@ function money(usd: number): string {
 function modelLabel(id: string): string {
   const [family, ...version] = id.replace(/^claude-/, '').replace(/\[.*\]$/, '').replace(/-\d{8}$/, '').split('-')
   return version.length ? `${family} ${version.join('.')}` : family ?? id
+}
+
+// The argument that says most about a call, for the slot: a Bash description, a file name, a pattern.
+function toolArg(tool: string, input: unknown): string {
+  const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+  const text = (key: string) => (typeof args[key] === 'string' ? (args[key] as string) : '')
+  switch (tool) {
+    case 'Bash': case 'PowerShell': return text('description') || text('command')
+    case 'Read': case 'Edit': case 'Write': return basename(text('file_path'))
+    case 'NotebookEdit': return basename(text('notebook_path'))
+    case 'Grep': case 'Glob': return text('pattern')
+    case 'WebFetch': return text('url').replace(/^https?:\/\/(www\.)?/, '')
+    case 'WebSearch': return text('query')
+    case 'Agent': case 'Task': return text('description') || text('subagent_type')
+    default: return ''
+  }
+}
+
+// Exactly `width` cells: the first call's name and argument, or the name and the count of calls.
+export function toolSlot(tools: { name: string; arg: string }[], width: number): { text: string; bright: number } {
+  const first = tools[0]
+  if (!first) return { text: PHASE_WORDS.tool.padStart(width), bright: 0 }
+  const more = tools.length < 2 ? first.arg : tools.every(t => t.name === first.name) ? `×${tools.length}` : `+${tools.length - 1}`
+  const full = `${first.name} ${more}`.replace(/\s+/g, ' ').trim()
+  const text = full.length > width ? `${full.slice(0, width - 1)}…` : full.padEnd(width)
+  return { text, bright: Math.min(first.name.length, width) }
 }
 
 function basename(path: string): string {
@@ -452,10 +482,13 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const now = Date.now()
 
   const Sep = () => <Text dimColor> · </Text>
-  // The number and " t/s" while a reply streams, the phase's word otherwise: 8 cells either way.
+  // The number and " t/s" while a reply streams, the phase's word otherwise: SLOT_WIDTH cells either
+  // way. A running tool fills TOOL_WIDTH, the dot line's cells too; slot.tsx counts the sending time.
+  const tool = toolSlot(session.tools, TOOL_WIDTH)
   const speedSlot = session.phase === 'receiving'
     ? `${slot(String(Math.min(TPS_MAX, session.tokensPerSecond)), TPS_WIDTH)} t/s`
-    : slot(PHASE_WORDS[session.phase], TPS_WIDTH + ' t/s'.length)
+    : session.phase === 'tool' ? tool.text : slot(PHASE_WORDS[session.phase], SLOT_WIDTH)
+  const isToolShown = session.phase === 'tool'
   const Phase = () => {
     switch (session.phase) {
       case 'sending': return <Text color={c.folder}>↑ </Text>
@@ -608,16 +641,16 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
             {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
             {Client ? (
-              <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : 0, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
-            ) : session.phase === 'receiving' ? (
+              <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
+            ) : isToolShown ? <Text dimColor>{speedSlot}</Text> : session.phase === 'receiving' ? (
               <Box>
                 <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), TPS_WIDTH)}</Text>
                 <Text dimColor> t/s</Text>
               </Box>
-            ) : <Text dimColor>{slot(PHASE_WORDS[session.phase], TPS_WIDTH + ' t/s'.length)}</Text>}
-            {Client && <Text> </Text>}
-            {Client && (
-              <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
+            ) : <Text dimColor>{slot(PHASE_WORDS[session.phase], SLOT_WIDTH)}</Text>}
+            {Client && !isToolShown && <Text> </Text>}
+            {Client && !isToolShown && (
+              <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
             )}
           </Box>
           <Sep />
@@ -795,6 +828,7 @@ export const register: Register = (on, options) => {
     if (session.pickedEffort && e.effort !== undefined) e = { ...e, effort: session.pickedEffort as typeof e.effort }
     setEffort($, e.effort)
     session.phase = 'sending'
+    session.tools = []
     redraw($)
     let firstChunkAt = 0
     let chars = 0
@@ -840,10 +874,21 @@ export const register: Register = (on, options) => {
     }
   })
 
+  // tool.check runs no tool, so its hook returns at once: a tool.call hook would wait out the
+  // whole tool, past its 10 s budget. Only the main loop's calls show; a query has no tool_use_id.
+  on('tool.check', ($, e, next) => {
+    if (e.tool_use_id && !e.agentId) {
+      session.tools = [...session.tools, { name: e.tool.startsWith('mcp__') ? e.tool.split('__').pop()! : e.tool, arg: toolArg(e.tool, e.input) }]
+      redraw($)
+    }
+    return next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (!e.agentId) {
       session.phase = 'idle'
+      session.tools = []
       redraw($)
     }
     const u = result?.usage
