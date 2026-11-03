@@ -18,6 +18,9 @@ type Scramble = { kind: string; from: string; frame: number; ticking: boolean }
 
 // Per instance: the terminal and the desktop app each run their own Client of this module.
 const shown = new WeakMap<object, string>()
+// Instances with a running timer. A map entry is set at once; state.ticking only from the next
+// call, so two calls before it could each start a timer.
+const ticking = new WeakSet<object>()
 
 // Steps through NOISE by frame and cell, so neighbouring cells differ and a test sees the same frames.
 const noise = (frame: number, cell: number) => NOISE[(frame * 7 + cell * 13) % NOISE.length]!
@@ -37,11 +40,15 @@ const Slot: ClientModule<SlotProps, Scramble> = (props, surface) => {
   } else if (s.kind !== props.kind) {
     // A change during a scramble restarts it from what the slot shows; the running clock carries on.
     surface.setState({ kind: props.kind, from: shown.get(surface) ?? props.text, frame: 0, ticking: true })
-    if (!s.ticking) {
+    if (!ticking.has(surface)) {
+      ticking.add(surface)
       const stop = surface.every(props.frameMs, () => {
         const now = surface.state!
         const isDone = now.frame + 1 >= SETTLE_AT + props.text.length
-        if (isDone) stop()
+        if (isDone) {
+          stop()
+          ticking.delete(surface)
+        }
         surface.setState({ ...now, frame: isDone ? Number.POSITIVE_INFINITY : now.frame + 1, ticking: !isDone })
       })
     }
