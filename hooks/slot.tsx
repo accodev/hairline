@@ -1,11 +1,14 @@
 import type { ClientModule } from 'claude-code'
 
-// A Client module, so the scramble runs on the surface clock without redrawing the hint line.
+// A Client module, so the scramble and the sending time run on the surface clock without redrawing
+// the hint line.
 
 // When the phase changes, every cell that held or will hold a character shows random ones, then
 // the cells settle on the new text from left to right, one each frame after the first SETTLE_AT.
 const SETTLE_AT = 2
 const NOISE = 'abcdefghijklmnopqrstuvwxyz0123456789/'
+const SENDING = 'sending' // the phase whose time the slot counts: the request is out, nothing back yet
+const SENDING_STEP_MS = 100 // the time shows tenths of a second
 
 export type SlotProps = {
   text: string // the whole slot, already padded to its width
@@ -14,13 +17,12 @@ export type SlotProps = {
   frameMs: number
   mono?: boolean
 }
-type Scramble = { kind: string; from: string; frame: number; ticking: boolean }
+type Slot = { kind: string; from: string; frame: number; sendingMs: number }
 
 // Per instance: the terminal and the desktop app each run their own Client of this module.
 const shown = new WeakMap<object, string>()
-// Instances with a running timer. A map entry is set at once; state.ticking only from the next
-// call, so two calls before it could each start a timer.
-const ticking = new WeakSet<object>()
+// The props of the last call, for the timer, which outlives the call that started it.
+const latest = new WeakMap<object, SlotProps>()
 
 // Steps through NOISE by frame and cell, so neighbouring cells differ and a test sees the same frames.
 const noise = (frame: number, cell: number) => NOISE[(frame * 7 + cell * 13) % NOISE.length]!
@@ -32,29 +34,38 @@ export function frameText(from: string, to: string, frame: number): string {
   }).join('')
 }
 
-const Slot: ClientModule<SlotProps, Scramble> = (props, surface) => {
+// The time since the request went out, in the slot's width: 4.1s, 12.8s.
+export function sendingText(ms: number, width: number): string {
+  return `${(Math.floor(ms / SENDING_STEP_MS) / 10).toFixed(1)}s`.padStart(width)
+}
+
+const SlotModule: ClientModule<SlotProps, Slot> = (props, surface) => {
   const { Box, Text } = surface.elements
+  latest.set(surface, props)
   const s = surface.state
   if (s === undefined) {
-    surface.setState({ kind: props.kind, from: props.text, frame: Number.POSITIVE_INFINITY, ticking: false })
+    surface.setState({ kind: props.kind, from: props.text, frame: Number.POSITIVE_INFINITY, sendingMs: 0 })
+    // One timer for the instance's life, started on its first call. A tick sets state only when
+    // the slot changes: a scramble frame, or the sending time's next tenth.
+    surface.every(props.frameMs, () => {
+      const now = surface.state!
+      const current = latest.get(surface)!
+      const isScrambling = Number.isFinite(now.frame)
+      const isSending = now.kind === SENDING
+      if (!isScrambling && !isSending) return
+      const frame = isScrambling && now.frame + 1 >= SETTLE_AT + current.text.length ? Number.POSITIVE_INFINITY : now.frame + (isScrambling ? 1 : 0)
+      const sendingMs = isSending ? now.sendingMs + current.frameMs : now.sendingMs
+      const isNewTenth = Math.floor(sendingMs / SENDING_STEP_MS) !== Math.floor(now.sendingMs / SENDING_STEP_MS)
+      if (isScrambling || isNewTenth) surface.setState({ ...now, frame, sendingMs })
+    })
   } else if (s.kind !== props.kind) {
-    // A change during a scramble restarts it from what the slot shows; the running clock carries on.
-    surface.setState({ kind: props.kind, from: shown.get(surface) ?? props.text, frame: 0, ticking: true })
-    if (!ticking.has(surface)) {
-      ticking.add(surface)
-      const stop = surface.every(props.frameMs, () => {
-        const now = surface.state!
-        const isDone = now.frame + 1 >= SETTLE_AT + props.text.length
-        if (isDone) {
-          stop()
-          ticking.delete(surface)
-        }
-        surface.setState({ ...now, frame: isDone ? Number.POSITIVE_INFINITY : now.frame + 1, ticking: !isDone })
-      })
-    }
+    // A change during a scramble restarts it from what the slot shows.
+    surface.setState({ kind: props.kind, from: shown.get(surface) ?? props.text, frame: 0, sendingMs: 0 })
   }
-  const frame = s === undefined ? Number.POSITIVE_INFINITY : s.kind === props.kind ? s.frame : 0
-  const text = frameText(s && s.kind === props.kind ? s.from : (shown.get(surface) ?? props.text), props.text, frame)
+  const isCurrent = s !== undefined && s.kind === props.kind
+  const frame = s === undefined ? Number.POSITIVE_INFINITY : isCurrent ? s.frame : 0
+  const target = props.kind === SENDING ? sendingText(isCurrent ? s.sendingMs : 0, props.text.length) : props.text
+  const text = frameText(isCurrent ? s.from : (shown.get(surface) ?? props.text), target, frame)
   shown.set(surface, text)
   const style = props.mono ? { mono: true, size: 'caption' as const } : {}
   return (
@@ -65,4 +76,4 @@ const Slot: ClientModule<SlotProps, Scramble> = (props, surface) => {
   )
 }
 
-export default Slot
+export default SlotModule

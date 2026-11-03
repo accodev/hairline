@@ -42,20 +42,33 @@ function blocks(samples: number[], at: (v: number) => number): string[] {
   return Array.from({ length: CELLS }, (_, cell) => BLOCKS[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (BLOCKS.length - 1))]!)
 }
 
-export type SpeedProps = { rate: number; live: boolean; color: string; frameMs: number; mono?: boolean }
-type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean }
+// sweep: a request is out and nothing has come back. No progress of it can be known, so a bump
+// runs across the line, one pass each SWEEP_MS, to show that the wait goes on.
+export type SpeedProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean }
+type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean; sweepMs?: number }
+
+const SWEEP_MS = 1200
+const SWEEP_HALF_WIDTH = 2 // samples on each side of the bump's top
+
+// The samples of the bump at `ms` into the sweep; it starts and ends outside the line.
+export function sweepBars(ms: number): number[] {
+  const at = ((ms % SWEEP_MS) / SWEEP_MS) * (SAMPLES + 2 * SWEEP_HALF_WIDTH) - SWEEP_HALF_WIDTH
+  return Array.from({ length: SAMPLES }, (_, i) => Math.max(0, 1 - Math.abs(i - at) / SWEEP_HALF_WIDTH))
+}
 
 // Per instance: the terminal and the desktop app each run their own Client of this module.
 const targets = new WeakMap<object, number>()
 // The running timer's stop. A map entry is set at once; state.ticking only from the next call,
 // so two calls before it could each start a timer, and the first one would never stop.
 const stops = new WeakMap<object, () => void>()
+const sweeps = new WeakMap<object, boolean>()
 
 const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
   const { Box, Text } = surface.elements
   targets.set(surface, props.live ? props.rate : 0)
+  sweeps.set(surface, !!props.sweep)
   const s: Anim = surface.state ?? { shown: 0, bars: Array(SAMPLES).fill(0), top: 1, sinceShift: 0, ticking: false }
-  if (props.live && !stops.has(surface)) {
+  if ((props.live || props.sweep) && !stops.has(surface)) {
     surface.setState({ ...s, ticking: true })
     const frameMs = props.frameMs
     const ease = 1 - 0.88 ** (frameMs / 16) // 12% of the gap per 16 ms, whatever the frame interval
@@ -69,27 +82,30 @@ const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
       // The scale freezes when the stream ends, so the falling samples drop on screen. The line
       // runs on until every sample has reached the bottom row.
       const top = target > 0 ? Math.max(...bars, 1) : now.top
-      const isSettled = target === 0 && bars.every(v => v < top / 8)
+      const isSweeping = sweeps.get(surface)!
+      const isSettled = target === 0 && !isSweeping && bars.every(v => v < top / 8)
       if (isSettled) {
         stop()
         stops.delete(surface)
       }
-      surface.setState({ shown, bars: isSettled ? bars.map(() => 0) : bars, top, sinceShift: isShift ? 0 : sinceShift, ticking: !isSettled })
+      surface.setState({ shown, bars: isSettled ? bars.map(() => 0) : bars, top, sinceShift: isShift ? 0 : sinceShift, ticking: !isSettled, sweepMs: isSweeping ? (now.sweepMs ?? 0) + frameMs : 0 })
     })
     stops.set(surface, stop)
   }
-  const at = scale(s.bars, s.top, props.live)
+  const isLit = props.live || !!props.sweep
+  const samples = props.sweep ? sweepBars(s.sweepMs ?? 0) : s.bars
+  const at = props.sweep ? scale(samples, 1, false) : scale(s.bars, s.top, props.live)
   // The desktop app's own font is proportional; the line around it is monospaced there.
   // The blocks come from a fallback font of other widths, so each sits in a box one cell wide.
   return props.mono
     ? (
       <Box width={CELLS}>
-        {blocks(s.bars, at).map((block, i) => (
-          <Box key={`block-${i}`} width={1} overflow="hidden"><Text color={props.color} dimColor={!props.live} mono size="caption">{block}</Text></Box>
+        {blocks(samples, at).map((block, i) => (
+          <Box key={`block-${i}`} width={1} overflow="hidden"><Text color={props.color} dimColor={!isLit} mono size="caption">{block}</Text></Box>
         ))}
       </Box>
     )
-    : <Text color={props.color} dimColor={!props.live}>{dotLine(s.bars, at)}</Text>
+    : <Text color={props.color} dimColor={!isLit}>{dotLine(samples, at)}</Text>
 }
 
 export default Speed
