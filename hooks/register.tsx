@@ -23,7 +23,9 @@ const CURRENCIES = ['USD', 'CAD', 'AUD', 'EUR', 'JPY', 'CNY'] as const
 const RATES_URL = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=' // European Central Bank rates, no key
 // Nerd Font glyphs, private-use code points that any other font draws as a box. Without an
 // installed Nerd Font the phase shows blank cells of the same width, so the line stays still.
-const NERD_GLYPHS = { tool: '\uf013' } as const // nf-fa-cog
+// U+21BB, the reset arrow before, is missing from common terminal fonts: the fallback glyph spilled
+// over the time after it.
+const NERD_GLYPHS = { tool: '\uf013', reset: '\uf017' } as const // nf-fa-cog, nf-fa-clock_o
 // The desktop app's monospaced face has no Nerd Font glyphs and Text cannot pick another font,
 // so it gets emoji, which every desktop system font set draws.
 const DESKTOP_GLYPHS = { tool: '\u2699\ufe0f' } as const // gear
@@ -499,7 +501,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
         <Sep />
         <Text dimColor>{`${label} `}</Text>
         <Percent value={w.percentUsed} />
-        {w.percentUsed >= RESET_SHOWN_FROM && w.resetsAt && <Text dimColor>{` ↻${untilReset(w.resetsAt)}`}</Text>}
+        {w.percentUsed >= RESET_SHOWN_FROM && w.resetsAt && <Text dimColor>{` ${!isDesktop && hasNerdFont ? `${NERD_GLYPHS.reset} ` : 'resets '}${untilReset(w.resetsAt)}`}</Text>}
       </Box>
     )
   })
