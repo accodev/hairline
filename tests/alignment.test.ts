@@ -37,9 +37,9 @@ test('the speed group keeps its width in every phase', async ($, on) => {
       await clock.advance(50)
       yield { kind: 'text', index: 0, text: 'x'.repeat(40) } as never
     }
-    return { turnId: 't', index: 0, answer: '', toolUses: [] } as never
+    const toolUses = ['a', 'b', 'c'].map(description => ({ name: 'Agent', input: { description } }))
+    return { turnId: 't', index: 0, answer: '', toolUses } as never
   })
-  on('tool.check', () => ({ decision: 'allow' }) as never)
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/home/dev/hairline' })
   const ui = await $.ui.mount(HINT)
   const line = async () => flat(await inline((await ui.drawn()) as Node, async key => (await ui.drawn({ in: key })) as Node))
@@ -52,14 +52,17 @@ test('the speed group keeps its width in every phase', async ($, on) => {
   const first = stream.next()
   await ui.advance(500)
   const sending = await line()
+  await ui.advance(1_000) // past the scramble, the time still counts
+  const later = await line()
+  expect(later).toMatch(/ 0\.9s /) // the slot sees the phase after the first 500 ms; the time stopped at 0.0s before
   release()
   await first
   await ui.advance(200)
   const receiving = await line()
   while (!(await stream.next()).done) {}
-  for (const id of ['a', 'b', 'c']) await $.tool.check({ tool: 'Agent', input: { description: id }, tool_use_id: id } as never)
   await ui.advance(500)
   const tools = await line()
+  expect(tools).toContain('Agent ×3')
 
   const lines = { idle, sending, receiving, tools }
   for (const [name, text] of Object.entries(lines)) console.log(`${name.padEnd(9)} ${text}`)
