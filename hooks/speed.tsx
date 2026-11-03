@@ -47,17 +47,19 @@ type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ti
 
 // Per instance: the terminal and the desktop app each run their own Client of this module.
 const targets = new WeakMap<object, number>()
+// The running timer's stop. A map entry is set at once; state.ticking only from the next call,
+// so two calls before it could each start a timer, and the first one would never stop.
 const stops = new WeakMap<object, () => void>()
 
 const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
   const { Box, Text } = surface.elements
   targets.set(surface, props.live ? props.rate : 0)
   const s: Anim = surface.state ?? { shown: 0, bars: Array(SAMPLES).fill(0), top: 1, sinceShift: 0, ticking: false }
-  if (props.live && !s.ticking) {
+  if (props.live && !stops.has(surface)) {
     surface.setState({ ...s, ticking: true })
     const frameMs = props.frameMs
     const ease = 1 - 0.88 ** (frameMs / 16) // 12% of the gap per 16 ms, whatever the frame interval
-    stops.set(surface, surface.every(frameMs, () => {
+    const stop = surface.every(frameMs, () => {
       const now = surface.state!
       const target = targets.get(surface)!
       const shown = now.shown + (target - now.shown) * ease
@@ -68,9 +70,13 @@ const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
       // runs on until every sample has reached the bottom row.
       const top = target > 0 ? Math.max(...bars, 1) : now.top
       const isSettled = target === 0 && bars.every(v => v < top / 8)
-      if (isSettled) stops.get(surface)?.()
+      if (isSettled) {
+        stop()
+        stops.delete(surface)
+      }
       surface.setState({ shown, bars: isSettled ? bars.map(() => 0) : bars, top, sinceShift: isShift ? 0 : sinceShift, ticking: !isSettled })
-    }))
+    })
+    stops.set(surface, stop)
   }
   const at = scale(s.bars, s.top, props.live)
   // The desktop app's own font is proportional; the line around it is monospaced there.
