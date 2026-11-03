@@ -82,7 +82,8 @@ type Session = {
   limitStart: LimitStart
   tokensPerSecond: number
   phase: 'sending' | 'receiving' | 'tool' | 'idle'
-  tools: { name: string; arg: string }[] // the main loop's tool calls since the last request ended
+  tools: { name: string; arg: string }[] // the tool calls of the main loop's last response
+  sentAt: number // when the main loop's last request went out
   streaming: boolean
   context: SessionContextUsage | null
   compactAt: number | null
@@ -100,7 +101,7 @@ type Session = {
 
 const emptyStats = (): Stats => ({ input: 0, write: 0, read: 0, output: 0, main: 0, sub: 0, turns: 0, activeMs: 0, costStart: null })
 const emptySession = (): Session => ({
-  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', tools: [], streaming: false,
+  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', tools: [], sentAt: 0, streaming: false,
   context: null, compactAt: null, rateLimits: [], costUsd: null, lastTurn: null, lastTurnUsd: null, lastRequestAt: null, pickedEffort: null, pickBase: null, seen: { effort: null, model: null },
 })
 let session = emptySession()
@@ -641,7 +642,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
             {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
             {Client ? (
-              <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
+              <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
             ) : isToolShown ? <Text dimColor>{speedSlot}</Text> : session.phase === 'receiving' ? (
               <Box>
                 <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), TPS_WIDTH)}</Text>
@@ -829,6 +830,7 @@ export const register: Register = (on, options) => {
     setEffort($, e.effort)
     session.phase = 'sending'
     session.tools = []
+    session.sentAt = Date.now()
     redraw($)
     let firstChunkAt = 0
     let chars = 0
@@ -862,7 +864,10 @@ export const register: Register = (on, options) => {
         }
         yield chunk
       }
-      return await stream.result
+      const result = await stream.result
+      // The response lists every tool call it made; tool.check misses those the engine allows itself.
+      session.tools = result.toolUses.map(use => ({ name: use.name.startsWith('mcp__') ? use.name.split('__').pop()! : use.name, arg: toolArg(use.name, use.input) }))
+      return result
     } finally {
       session.lastRequestAt = Date.now()
       session.phase = 'tool' // a request without a turn.complete after it runs a tool
@@ -872,16 +877,6 @@ export const register: Register = (on, options) => {
         redraw($)
       }
     }
-  })
-
-  // tool.check runs no tool, so its hook returns at once: a tool.call hook would wait out the
-  // whole tool, past its 10 s budget. Only the main loop's calls show; a query has no tool_use_id.
-  on('tool.check', ($, e, next) => {
-    if (e.tool_use_id && !e.agentId) {
-      session.tools = [...session.tools, { name: e.tool.startsWith('mcp__') ? e.tool.split('__').pop()! : e.tool, arg: toolArg(e.tool, e.input) }]
-      redraw($)
-    }
-    return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {

@@ -15,14 +15,18 @@ export type SlotProps = {
   kind: string // the phase: a change of kind scrambles, a change of text alone does not
   bright: number // the leading cells drawn at full strength; the rest are dim
   frameMs: number
+  sentAt?: number // when the request went out (epoch ms): the sending time counts from it
   mono?: boolean
 }
-type Slot = { kind: string; from: string; frame: number; sendingMs: number }
+type Slot = { kind: string; from: string; frame: number; sendingMs: number } // sendingMs: the time drawn
 
 // Per instance: the terminal and the desktop app each run their own Client of this module.
 const shown = new WeakMap<object, string>()
 // The props of the last call, for the timer, which outlives the call that started it.
 const latest = new WeakMap<object, SlotProps>()
+// The frame clock's time in the sending phase, kept outside state: a tick that saves no state
+// must still count its time.
+const ticked = new WeakMap<object, number>()
 
 // Steps through NOISE by frame and cell, so neighbouring cells differ and a test sees the same frames.
 const noise = (frame: number, cell: number) => NOISE[(frame * 7 + cell * 13) % NOISE.length]!
@@ -32,6 +36,12 @@ export function frameText(from: string, to: string, frame: number): string {
     if (frame >= SETTLE_AT + cell) return char
     return char === ' ' && (from[cell] ?? ' ') === ' ' ? ' ' : noise(frame, cell)
   }).join('')
+}
+
+// The frame clock's ticks, or the wall clock when it is ahead: a frame clock that stalls fires
+// fewer ticks than the time that passed.
+function sendingSince(ticks: number, sentAt: number | undefined): number {
+  return Math.max(ticks, sentAt ? Date.now() - sentAt : 0)
 }
 
 // The time since the request went out, in the slot's width: 4.1s, 12.8s.
@@ -54,12 +64,15 @@ const SlotModule: ClientModule<SlotProps, Slot> = (props, surface) => {
       const isSending = now.kind === SENDING
       if (!isScrambling && !isSending) return
       const frame = isScrambling && now.frame + 1 >= SETTLE_AT + current.text.length ? Number.POSITIVE_INFINITY : now.frame + (isScrambling ? 1 : 0)
-      const sendingMs = isSending ? now.sendingMs + current.frameMs : now.sendingMs
-      const isNewTenth = Math.floor(sendingMs / SENDING_STEP_MS) !== Math.floor(now.sendingMs / SENDING_STEP_MS)
-      if (isScrambling || isNewTenth) surface.setState({ ...now, frame, sendingMs })
+      const ticks = (ticked.get(surface) ?? 0) + (isSending ? current.frameMs : 0)
+      ticked.set(surface, ticks)
+      const elapsed = isSending ? sendingSince(ticks, current.sentAt) : now.sendingMs
+      const isNewTenth = Math.floor(elapsed / SENDING_STEP_MS) !== Math.floor(now.sendingMs / SENDING_STEP_MS)
+      if (isScrambling || isNewTenth) surface.setState({ ...now, frame, sendingMs: elapsed })
     })
   } else if (s.kind !== props.kind) {
     // A change during a scramble restarts it from what the slot shows.
+    ticked.set(surface, 0)
     surface.setState({ kind: props.kind, from: shown.get(surface) ?? props.text, frame: 0, sendingMs: 0 })
   }
   const isCurrent = s !== undefined && s.kind === props.kind
