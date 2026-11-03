@@ -67,7 +67,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
     }
     expect(await ui.find({ type: 'Text', text: ' 104k/200k' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '38%' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: / ↻3d$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: / (\uf017 |resets )3d$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '10.7M tok' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'opus 5.5' })).toBeDefined()
     const effort = await ui.find({ type: 'Text', text: surface === 'terminal' ? 'xhigh' : 'high' })
