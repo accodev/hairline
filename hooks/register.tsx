@@ -149,10 +149,20 @@ function filledCells(pct: number): number {
   return Math.round((Math.min(pct, 100) / 100) * BAR_CELLS)
 }
 
-// Red at the compaction point, which is where the context runs out in practice.
-function rampColor(c: Palette, pct: number, compactAt: number | null): string {
-  const share = pct / (compactAt ?? 100)
-  return c.ramp[Math.min(c.ramp.length - 1, Math.floor(share * c.ramp.length))]!
+// Context fill, as a share of the window, where retrieval measurably degrades. NoLiMa
+// (arXiv 2502.05167) tested 13 models that claim 128K or more: at 16K (12.5% of 128K) every
+// one was below 85% of its short-context score, and at 32K (25%) 11 of 13 were below half.
+const CONTEXT_YELLOW_FROM = 12.5
+const CONTEXT_RED_FROM = 25
+
+// The ramp's 6 colors, 2 to a band: green below CONTEXT_YELLOW_FROM, yellow below CONTEXT_RED_FROM,
+// red from it. Each band's second color starts halfway through it; the last band is as wide as
+// the yellow one.
+function rampColor(c: Palette, pct: number): string {
+  const band = pct < CONTEXT_YELLOW_FROM ? 0 : pct < CONTEXT_RED_FROM ? 1 : 2
+  const from = [0, CONTEXT_YELLOW_FROM, CONTEXT_RED_FROM][band]!
+  const width = [CONTEXT_YELLOW_FROM, CONTEXT_RED_FROM - CONTEXT_YELLOW_FROM, CONTEXT_RED_FROM - CONTEXT_YELLOW_FROM][band]!
+  return c.ramp[band * 2 + (pct - from >= width / 2 ? 1 : 0)]!
 }
 
 // The breakdown comes from the local /context estimate, which costs no API request.
@@ -511,7 +521,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const cells = Array.from({ length: BAR_CELLS }, (_, i) => ({
     isFilled: i < filled,
     isMarker: i === markerCell,
-    color: rampColor(c, ((i + 0.5) / BAR_CELLS) * 100, compactAt),
+    color: rampColor(c, ((i + 0.5) / BAR_CELLS) * 100),
   }))
   const contextBar = e.surface === 'terminal' || isDesktop ? (
     <Box>
@@ -634,7 +644,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           {contextBar}
           {pct === null
             ? <Text dimColor>{` ${slot('--%', PCT_WIDTH)}`}</Text>
-            : <Text color={rampColor(c, pct, compactAt)}>{` ${slot(`${Math.round(pct)}%`, PCT_WIDTH)}`}</Text>}
+            : <Text color={rampColor(c, pct)}>{` ${slot(`${Math.round(pct)}%`, PCT_WIDTH)}`}</Text>}
           <Text dimColor>{` ${slot(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`}</Text>
           <Box>
             <Sep />
