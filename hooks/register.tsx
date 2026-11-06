@@ -1,4 +1,5 @@
-import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, RenderElement, RenderInput, RenderSurface, SessionContextUsage, SessionRateLimit } from 'claude-code'
+import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, RenderElement, RenderInput, RenderSurface, SessionContextUsage, SessionRateLimit, UiPressArgument } from 'claude-code'
+import { chipRegion, hasRegions, slotRegion, speedRegion, spinnerRegion } from './surfaces.tsx'
 
 const BAR_CELLS = 8
 // Fixed widths, so a changing figure never moves the ones after it on the line.
@@ -105,7 +106,8 @@ const emptySession = (): Session => ({
   context: null, compactAt: null, rateLimits: [], costUsd: null, lastTurn: null, lastTurnUsd: null, lastRequestAt: null, pickedEffort: null, pickBase: null, seen: { effort: null, model: null },
 })
 let session = emptySession()
-let loaded = false
+let loading: Promise<void> | null = null // this session's load(), from its first render or request
+let isTimerStarted = false
 type Panel = 'tokens' | 'effort' | 'model'
 let open: Panel | null = null
 function setOpen($: EngineInterface, panel: Panel | null): void {
@@ -418,10 +420,21 @@ function startTerminal($: EngineInterface): void {
   void readLocation($)
 }
 
-// Also called from the first render: after /reload-plugins, session.start does not fire.
+// From the first render or request, not from session.start: a $ call made in a hook delays that
+// hook's answer, and session.start's answer holds the session's start. It also covers
+// /reload-plugins, which resets this module's state without a session.start.
+const ensureLoaded = ($: EngineInterface) => (loading ??= load($))
+
 // The reads run side by side; each redraws when it lands, so the line fills in as they arrive.
 async function load($: EngineInterface): Promise<void> {
-  loaded = true
+  if (!isTimerStarted) {
+    isTimerStarted = true
+    $.clock.every(LOCATION_REFRESH_MS, () => {
+      if (isTerminalStarted) void readLocation($)
+      void readExchange($)
+      if (open === 'tokens') redraw($) // the cache countdown changes with no event
+    })
+  }
   void $.command.register({ name: 'hairline-fonts', description: 'Look for a Nerd Font again, after installing or removing one' }).catch(() => {})
   void readExchange($)
   void readCompactAt($)
@@ -466,11 +479,11 @@ function monospace(node: RenderElement): RenderElement {
 
 // The line and its panels, under whatever the hooks beneath drew: the engine's hint on the terminal,
 // another mod's rows in the desktop app's band above the prompt.
+// h() in place of JSX, and the regions from surfaces.tsx: see there for the startup cost.
 async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'AbovePrompt'>, engineHint: RenderElement | null | undefined) {
-  if (!loaded) void load($)
+  void ensureLoaded($)
   const elements = $.ui.resolve(e)
   const { Box, Text, Button } = elements
-  const Client = 'Client' in elements ? elements.Client : null // only the terminal and the desktop app run Client modules
   const c = e.surface === 'terminal' ? TERMINAL_PALETTE : THEME_PALETTE
   // The desktop app shows the folder, model and effort next to the prompt already.
   const isDesktop = e.surface === 'desktop'
@@ -482,7 +495,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const pct = context?.percent ?? null
   const now = Date.now()
 
-  const Sep = () => <Text dimColor> · </Text>
+  const Sep = () => h(Text, { dimColor: true }, ' · ')
   // The number and " t/s" while a reply streams, the phase's word otherwise: SLOT_WIDTH cells either
   // way. A running tool fills TOOL_WIDTH, the dot line's cells too; slot.tsx counts the sending time.
   const tool = toolSlot(session.tools, TOOL_WIDTH)
@@ -492,15 +505,14 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const isToolShown = session.phase === 'tool'
   const Phase = () => {
     switch (session.phase) {
-      case 'sending': return <Text color={c.folder}>↑ </Text>
-      case 'receiving': return <Text color={c.ok}>↓ </Text>
-      case 'tool': return Client
-        ? <Client key="hairline-spinner" module="./spinner.tsx" props={{ color: c.warn, mono: isDesktop }} />
-        : <Text color={c.warn}>{`${isDesktop ? DESKTOP_GLYPHS.tool : hasNerdFont ? NERD_GLYPHS.tool : ' '} `}</Text>
-      case 'idle': return <Text dimColor>{`${IDLE_GLYPH} `}</Text>
+      case 'sending': return h(Text, { color: c.folder }, '↑ ')
+      case 'receiving': return h(Text, { color: c.ok }, '↓ ')
+      case 'tool': return spinnerRegion(elements, { color: c.warn, mono: isDesktop })
+        ?? h(Text, { color: c.warn }, `${isDesktop ? DESKTOP_GLYPHS.tool : hasNerdFont ? NERD_GLYPHS.tool : ' '} `)
+      case 'idle': return h(Text, { dimColor: true }, `${IDLE_GLYPH} `)
     }
   }
-  const Percent = ({ value }: { value: number }) => <Text color={severity(c, value)}>{`${Math.round(value)}%`}</Text>
+  const Percent = ({ value }: { value: number }) => h(Text, { color: severity(c, value) }, `${Math.round(value)}%`)
 
   // Other graphical surfaces draw line glyphs wider than a cell, so they get painted boxes. The
   // desktop app's text is monospaced (see monospace), which keeps the glyphs one cell wide.
@@ -513,42 +525,27 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     isMarker: i === markerCell,
     color: rampColor(c, ((i + 0.5) / BAR_CELLS) * 100, compactAt),
   }))
-  const contextBar = e.surface === 'terminal' || isDesktop ? (
-    <Box>
-      {cells.map((cell, i) =>
-        cell.isMarker ? <Text key={`cell-${i}`} dimColor color={cell.isFilled ? cell.color : c.marker}>┃</Text>
-        : cell.isFilled ? <Text key={`cell-${i}`} color={cell.color}>━</Text>
-        : <Text key={`cell-${i}`} dimColor color={cell.color}>─</Text>)}
-    </Box>
-  ) : (
-    <Box width={BAR_CELLS} height={1} overflow="hidden">
-      {cells.map((cell, i) => (
-        <Box key={`cell-${i}`} width={1} height={1} backgroundColor={cell.isMarker ? c.marker : cell.isFilled ? cell.color : c.track} />
-      ))}
-    </Box>
-  )
+  const contextBar = e.surface === 'terminal' || isDesktop
+    ? h(Box, null, cells.map((cell, i) =>
+      cell.isMarker ? h(Text, { key: `cell-${i}`, dimColor: true, color: cell.isFilled ? cell.color : c.marker }, '┃')
+      : cell.isFilled ? h(Text, { key: `cell-${i}`, color: cell.color }, '━')
+      : h(Text, { key: `cell-${i}`, dimColor: true, color: cell.color }, '─')))
+    : h(Box, { width: BAR_CELLS, height: 1, overflow: 'hidden' }, cells.map((cell, i) =>
+      h(Box, { key: `cell-${i}`, width: 1, height: 1, backgroundColor: cell.isMarker ? c.marker : cell.isFilled ? cell.color : c.track })))
 
   const windows = RATE_LIMIT_WINDOWS.map(({ kind, label }) => {
     const w = rateLimits.find(l => l.kind === kind)
-    return w && (
-      <Box key={kind}>
-        <Sep />
-        <Text dimColor>{`${label} `}</Text>
-        <Percent value={w.percentUsed} />
-        {w.percentUsed >= RESET_SHOWN_FROM && w.resetsAt && <Text dimColor>{` ${!isDesktop && hasNerdFont ? `${NERD_GLYPHS.reset} ` : 'resets '}${untilReset(w.resetsAt)}`}</Text>}
-      </Box>
-    )
+    return w && h(Box, { key: kind },
+      h(Sep, null),
+      h(Text, { dimColor: true }, `${label} `),
+      h(Percent, { value: w.percentUsed }),
+      w.percentUsed >= RESET_SHOWN_FROM && w.resetsAt && h(Text, { dimColor: true }, ` ${!isDesktop && hasNerdFont ? `${NERD_GLYPHS.reset} ` : 'resets '}${untilReset(w.resetsAt)}`))
   })
 
-  const Row = ({ label, children }: { label: string; children: RenderChildren }) => (
-    <Box flexDirection="row" paddingLeft={2}>
-      <Text dimColor>{label.padEnd(8)}</Text>
-      {children}
-    </Box>
-  )
-  const Fig = ({ value, unit }: { value: string; unit?: string }) => (
-    <Box><Text>{value}</Text>{unit && <Text dimColor>{` ${unit}`}</Text>}</Box>
-  )
+  const Row = ({ label, children }: { label: string; children: RenderChildren }) =>
+    h(Box, { flexDirection: 'row', paddingLeft: 2 }, h(Text, { dimColor: true }, label.padEnd(8)), children)
+  const Fig = ({ value, unit }: { value: string; unit?: string }) =>
+    h(Box, null, h(Text, null, value), unit && h(Text, { dimColor: true }, ` ${unit}`))
   const panel = () => {
     const { costUsd, lastTurn, lastTurnUsd, lastRequestAt, limitStart } = session
     const hours = stats.activeMs / HOUR_MS
@@ -564,234 +561,146 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       const perHour = start && spanHours >= BURN_MIN_HOURS ? (w.percentUsed - start.pct) / spanHours : 0
       const fullInMs = perHour > 0 ? ((100 - w.percentUsed) / perHour) * HOUR_MS : null
       const resetsInMs = w.resetsAt ? Date.parse(w.resetsAt) - now : null
-      return (
-        <Box key={`burn-${kind}`}>
-          {i > 0 && <Sep />}
-          <Text dimColor>{`${label} `}</Text>
-          <Percent value={w.percentUsed} />
-          {perHour > 0 ? (
-            <Box>
-              <Text dimColor>{` +${perHour.toFixed(1)}%/h`}</Text>
-              {/* Only a limit that fills before its reset needs a word. */}
-              {(fullInMs === null || resetsInMs === null || fullInMs < resetsInMs) && <Text color={c.warn}>{`, full in ${duration(fullInMs ?? 0)}`}</Text>}
-            </Box>
-          ) : <Text dimColor>{spanHours < BURN_MIN_HOURS ? ' measuring' : ' steady'}</Text>}
-        </Box>
-      )
+      return h(Box, { key: `burn-${kind}` },
+        i > 0 && h(Sep, null),
+        h(Text, { dimColor: true }, `${label} `),
+        h(Percent, { value: w.percentUsed }),
+        perHour > 0
+          ? h(Box, null,
+            h(Text, { dimColor: true }, ` +${perHour.toFixed(1)}%/h`),
+            // Only a limit that fills before its reset needs a word.
+            (fullInMs === null || resetsInMs === null || fullInMs < resetsInMs) && h(Text, { color: c.warn }, `, full in ${duration(fullInMs ?? 0)}`))
+          : h(Text, { dimColor: true }, spanHours < BURN_MIN_HOURS ? ' measuring' : ' steady'))
     })
-    return (
-      <Box flexDirection="column">
-        <Row label="cost">
-          {costUsd === null ? <Text dimColor>not reported</Text> : (
-            <Box>
-              <Fig value={money(costUsd)} />
-              {trackedUsd !== null && hours >= BURN_MIN_HOURS && <Box><Sep /><Fig value={money(trackedUsd / hours)} unit="per active hour" /></Box>}
-              {lastTurnUsd !== null && <Box><Sep /><Text dimColor>last turn </Text><Fig value={money(lastTurnUsd)} /></Box>}
-            </Box>
-          )}
-        </Row>
-        <Row label="tokens">
-          <Fig value={human(stats.input)} unit="in" /><Sep />
-          <Fig value={human(stats.write)} unit="cache write" /><Sep />
-          <Fig value={human(stats.read)} unit="cache read" /><Sep />
-          <Fig value={human(stats.output)} unit="out" /><Sep />
-          <Fig value={`${Math.round(hit * 100)}%`} unit="cache hit" />
-          {cacheLeft !== null && (
-            <Box>
-              <Sep />
-              {cacheLeft > 0
-                ? <Text dimColor>{`cache warm ${duration(cacheLeft)}`}</Text>
-                : <Text color={c.warn}>cache cold</Text>}
-            </Box>
-          )}
-        </Row>
-        <Row label="split">
-          <Fig value={`${Math.round((stats.main / Math.max(1, stats.main + stats.sub)) * 100)}%`} unit="main" /><Sep />
-          <Fig value={`${Math.round((stats.sub / Math.max(1, stats.main + stats.sub)) * 100)}%`} unit="subagents" /><Sep />
-          <Fig value={String(stats.turns)} unit="turns" />
-          {stats.activeMs > 0 && <Box><Sep /><Fig value={duration(stats.activeMs)} unit="active" /></Box>}
-          {lastTurn && <Box><Sep /><Text dimColor>last turn </Text><Fig value={human(lastTurn.tokens)} unit={`tok in ${duration(lastTurn.ms)}`} /></Box>}
-        </Row>
-        {burns.length > 0 && <Row label="limits">{burns}</Row>}
-      </Box>
-    )
+    return h(Box, { flexDirection: 'column' },
+      h(Row, { label: 'cost' },
+        costUsd === null ? h(Text, { dimColor: true }, 'not reported') : h(Box, null,
+          h(Fig, { value: money(costUsd) }),
+          trackedUsd !== null && hours >= BURN_MIN_HOURS && h(Box, null, h(Sep, null), h(Fig, { value: money(trackedUsd / hours), unit: 'per active hour' })),
+          lastTurnUsd !== null && h(Box, null, h(Sep, null), h(Text, { dimColor: true }, 'last turn '), h(Fig, { value: money(lastTurnUsd) })))),
+      h(Row, { label: 'tokens' },
+        h(Fig, { value: human(stats.input), unit: 'in' }), h(Sep, null),
+        h(Fig, { value: human(stats.write), unit: 'cache write' }), h(Sep, null),
+        h(Fig, { value: human(stats.read), unit: 'cache read' }), h(Sep, null),
+        h(Fig, { value: human(stats.output), unit: 'out' }), h(Sep, null),
+        h(Fig, { value: `${Math.round(hit * 100)}%`, unit: 'cache hit' }),
+        cacheLeft !== null && h(Box, null,
+          h(Sep, null),
+          cacheLeft > 0
+            ? h(Text, { dimColor: true }, `cache warm ${duration(cacheLeft)}`)
+            : h(Text, { color: c.warn }, 'cache cold'))),
+      h(Row, { label: 'split' },
+        h(Fig, { value: `${Math.round((stats.main / Math.max(1, stats.main + stats.sub)) * 100)}%`, unit: 'main' }), h(Sep, null),
+        h(Fig, { value: `${Math.round((stats.sub / Math.max(1, stats.main + stats.sub)) * 100)}%`, unit: 'subagents' }), h(Sep, null),
+        h(Fig, { value: String(stats.turns), unit: 'turns' }),
+        stats.activeMs > 0 && h(Box, null, h(Sep, null), h(Fig, { value: duration(stats.activeMs), unit: 'active' })),
+        lastTurn && h(Box, null, h(Sep, null), h(Text, { dimColor: true }, 'last turn '), h(Fig, { value: human(lastTurn.tokens), unit: `tok in ${duration(lastTurn.ms)}` }))),
+      burns.length > 0 && h(Row, { label: 'limits' }, burns))
   }
 
-  const line = (
-    <Box flexDirection="column">
-      <Box flexDirection="row" justifyContent="space-between" width="100%" overflow="hidden">
-        <Box flexDirection="row" flexShrink={1} overflow="hidden">
-          {/* Only the location shrinks, so the figures never wrap to a second row. */}
-          {!isDesktop && (
-            <Box flexDirection="row" flexShrink={1} overflow="hidden">
-              <Text color={c.folder} wrap="truncate-end">{folder}</Text>
-              {branch && <Text dimColor>:</Text>}
-              {branch && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
-            </Box>
-          )}
-          <Box flexDirection="row" flexShrink={0}>
-          {!isDesktop && <Text>  </Text>}
-          {contextBar}
-          {pct === null
-            ? <Text dimColor>{` ${slot('--%', PCT_WIDTH)}`}</Text>
-            : <Text color={rampColor(c, pct, compactAt)}>{` ${slot(`${Math.round(pct)}%`, PCT_WIDTH)}`}</Text>}
-          <Text dimColor>{` ${slot(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`}</Text>
-          <Box>
-            <Sep />
-            {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
-            {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
-            {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
-            {Client ? (
-              <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
-            ) : isToolShown ? <Text dimColor>{speedSlot}</Text> : session.phase === 'receiving' ? (
-              <Box>
-                <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), TPS_WIDTH)}</Text>
-                <Text dimColor> t/s</Text>
-              </Box>
-            ) : <Text dimColor>{slot(PHASE_WORDS[session.phase], SLOT_WIDTH)}</Text>}
-            {Client && !isToolShown && <Text> </Text>}
-            {Client && !isToolShown && (
-              <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
-            )}
-          </Box>
-          <Sep />
-          {tokens === 0 ? <Text dimColor>--- tok</Text> : (
-            <Box>
-              {isDesktop && Client ? (
-                <Box>
-                <Client key="hairline-tokens" module="./chip.tsx" props={{ text: `${human(tokens)} tok`, inverse: open === 'tokens' }} />
-                </Box>
-              ) : (
-                <Box>
-                  <Button
-                    key="hairline-tokens"
-                    label={`${human(tokens)} tok`}
-                    plain
-                    onPress={() => {
-                      toggle($, 'tokens')
-                    }}
-                  >
-                    <Text inverse={open === 'tokens'}>{`${human(tokens)} tok`}</Text>
-                  </Button>
-                </Box>
-              )}
-            </Box>
-          )}
-          {windows}
-          </Box>
-        </Box>
-        <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
-          {model && !isDesktop && (modelRow ? (
-            <Button
-              key="hairline-model"
-              label={modelLabel(model)}
-              plain
-              onPress={async () => {
-                await $.config.list().then(readRows, () => {})
-                toggle($, 'model')
-              }}
-            >
-              <Text inverse={open === 'model'}>{modelLabel(model)}</Text>
-            </Button>
-          ) : <Text>{modelLabel(model)}</Text>)}
-          {model && effort && !isDesktop && (
-            <Box>
-              <Text> </Text>
-              <Button
-                key="hairline-effort"
-                label={effort}
-                plain
-                onPress={async () => {
-                  await $.config.list().then(readRows, () => {})
-                  toggle($, 'effort')
-                }}
-              >
-                <Text inverse={open === 'effort'} color={c.effort[EFFORT_LEVELS.indexOf(effort)]} dimColor={!EFFORT_LEVELS.includes(effort)}>{effort}</Text>
-              </Button>
-            </Box>
-          )}
-          {sessionId && (
-            <Box>
-              {model && !isDesktop && <Sep />}
-              {isDesktop && Client ? (
-                <Client key="hairline-session-id" module="./chip.tsx" props={{ text: sessionId.slice(0, 8), color: c.track, dim: true }} />
-              ) : (
-                <Button
-                  key="hairline-session-id"
-                  label={sessionId.slice(0, 8)}
-                  plain
-                  onPress={press => copySessionId($, press.surface)}
-                >
-                  <Text color={c.track} dimColor>{sessionId.slice(0, 8)}</Text>
-                </Button>
-              )}
-            </Box>
-          )}
-        </Box>
-      </Box>
-      {open === 'model' && modelRow && (
-        <Box flexDirection="row" justifyContent="flex-end" width="100%" flexWrap="wrap">
-          <Text dimColor>model </Text>
-          {modelRow.options.map(option => (
-            <Box key={`model-${option}`}>
-              <Text> </Text>
-              <Button
-                key={`hairline-model-${option}`}
-                label={option}
-                plain
-                onPress={async () => {
-                  setOpen($, null)
-                  const { deny } = await $.config.set({ key: 'model', value: option })
-                  if (!deny && modelRow) modelRow = { ...modelRow, value: option }
-                  $.ui.toast(deny ? `model not changed: ${deny}` : `model ${option}`)
-                  redraw($)
-                }}
-              >
-                <Text bold={option === modelRow!.value} underline={option === modelRow!.value} dimColor={option !== modelRow!.value}>{option}</Text>
-              </Button>
-            </Box>
-          ))}
-        </Box>
-      )}
-      {open === 'effort' && effort && (
-        <Box flexDirection="row" justifyContent="flex-end" width="100%">
-          <Text dimColor>effort </Text>
-          {EFFORT_LEVELS.map((level, i) => (
-            <Box key={`effort-${level}`}>
-              <Text> </Text>
-              <Button
-                key={`hairline-effort-${level}`}
-                label={level}
-                plain
-                onPress={() => {
-                  session.pickedEffort = level
-                  session.pickBase = { ...session.seen }
-                  setOpen($, null)
-                  setEffort($, level)
-                  save($)
-                  $.ui.toast(`effort ${level} from your next message`)
-                }}
-              >
-                <Text color={c.effort[i]} bold={level === effort} underline={level === effort}>{level}</Text>
-              </Button>
-            </Box>
-          ))}
-        </Box>
-      )}
-      {open === 'tokens' && tokens > 0 && panel()}
-    </Box>
-  )
-  return (
-    <Box flexDirection="column">
-      {engineHint}
-      {isDesktop ? monospace(line) : line}
-    </Box>
-  )
+  // The desktop app draws a Button in its own font, so a chip stands in for one there.
+  const tokensChip = isDesktop ? chipRegion(elements, 'hairline-tokens', { text: `${human(tokens)} tok`, inverse: open === 'tokens' }) : null
+  const idChip = isDesktop ? chipRegion(elements, 'hairline-session-id', { text: sessionId.slice(0, 8), color: c.track, dim: true }) : null
+  const line = h(Box, { flexDirection: 'column' },
+    h(Box, { flexDirection: 'row', justifyContent: 'space-between', width: '100%', overflow: 'hidden' },
+      h(Box, { flexDirection: 'row', flexShrink: 1, overflow: 'hidden' },
+        // Only the location shrinks, so the figures never wrap to a second row.
+        !isDesktop && h(Box, { flexDirection: 'row', flexShrink: 1, overflow: 'hidden' },
+          h(Text, { color: c.folder, wrap: 'truncate-end' }, folder),
+          branch && h(Text, { dimColor: true }, ':'),
+          branch && h(Text, { color: c.branch, wrap: 'truncate-end' }, branch)),
+        h(Box, { flexDirection: 'row', flexShrink: 0 },
+          !isDesktop && h(Text, null, '  '),
+          contextBar,
+          pct === null
+            ? h(Text, { dimColor: true }, ` ${slot('--%', PCT_WIDTH)}`)
+            : h(Text, { color: rampColor(c, pct, compactAt) }, ` ${slot(`${Math.round(pct)}%`, PCT_WIDTH)}`),
+          h(Text, { dimColor: true }, ` ${slot(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`),
+          h(Box, null,
+            h(Sep, null),
+            // An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space.
+            isDesktop ? h(Box, { width: 3, overflow: 'hidden' }, h(Phase, null)) : h(Phase, null),
+            // The number first, padded on its left: the bar ends the group, with only the separator after it.
+            slotRegion(elements, { text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop })
+              ?? (isToolShown
+                ? h(Text, { dimColor: true }, speedSlot)
+                : session.phase === 'receiving'
+                  ? h(Box, null, h(Text, null, slot(String(Math.min(TPS_MAX, tokensPerSecond)), TPS_WIDTH)), h(Text, { dimColor: true }, ' t/s'))
+                  : h(Text, { dimColor: true }, slot(PHASE_WORDS[session.phase], SLOT_WIDTH))),
+            hasRegions(elements) && !isToolShown && h(Text, null, ' '),
+            !isToolShown && speedRegion(elements, { rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop })),
+          h(Sep, null),
+          tokens === 0 ? h(Text, { dimColor: true }, '--- tok') : h(Box, null,
+            tokensChip ? h(Box, null, tokensChip) : h(Box, null,
+              h(Button, { key: 'hairline-tokens', label: `${human(tokens)} tok`, plain: true, onPress: () => toggle($, 'tokens') },
+                h(Text, { inverse: open === 'tokens' }, `${human(tokens)} tok`)))),
+          windows)),
+      h(Box, { flexDirection: 'row', flexShrink: 0, paddingLeft: 2 },
+        model && !isDesktop && (modelRow
+          ? h(Button, {
+            key: 'hairline-model',
+            label: modelLabel(model),
+            plain: true,
+            onPress: async () => {
+              await $.config.list().then(readRows, () => {})
+              toggle($, 'model')
+            },
+          }, h(Text, { inverse: open === 'model' }, modelLabel(model)))
+          : h(Text, null, modelLabel(model))),
+        model && effort && !isDesktop && h(Box, null,
+          h(Text, null, ' '),
+          h(Button, {
+            key: 'hairline-effort',
+            label: effort,
+            plain: true,
+            onPress: async () => {
+              await $.config.list().then(readRows, () => {})
+              toggle($, 'effort')
+            },
+          }, h(Text, { inverse: open === 'effort', color: c.effort[EFFORT_LEVELS.indexOf(effort)], dimColor: !EFFORT_LEVELS.includes(effort) }, effort))),
+        sessionId && h(Box, null,
+          model && !isDesktop && h(Sep, null),
+          idChip ?? h(Button, { key: 'hairline-session-id', label: sessionId.slice(0, 8), plain: true, onPress: (press: UiPressArgument) => copySessionId($, press.surface) },
+            h(Text, { color: c.track, dimColor: true }, sessionId.slice(0, 8)))))),
+    open === 'model' && modelRow && h(Box, { flexDirection: 'row', justifyContent: 'flex-end', width: '100%', flexWrap: 'wrap' },
+      h(Text, { dimColor: true }, 'model '),
+      modelRow.options.map(option => h(Box, { key: `model-${option}` },
+        h(Text, null, ' '),
+        h(Button, {
+          key: `hairline-model-${option}`,
+          label: option,
+          plain: true,
+          onPress: async () => {
+            setOpen($, null)
+            const { deny } = await $.config.set({ key: 'model', value: option })
+            if (!deny && modelRow) modelRow = { ...modelRow, value: option }
+            $.ui.toast(deny ? `model not changed: ${deny}` : `model ${option}`)
+            redraw($)
+          },
+        }, h(Text, { bold: option === modelRow!.value, underline: option === modelRow!.value, dimColor: option !== modelRow!.value }, option))))),
+    open === 'effort' && effort && h(Box, { flexDirection: 'row', justifyContent: 'flex-end', width: '100%' },
+      h(Text, { dimColor: true }, 'effort '),
+      EFFORT_LEVELS.map((level, i) => h(Box, { key: `effort-${level}` },
+        h(Text, null, ' '),
+        h(Button, {
+          key: `hairline-effort-${level}`,
+          label: level,
+          plain: true,
+          onPress: () => {
+            session.pickedEffort = level
+            session.pickBase = { ...session.seen }
+            setOpen($, null)
+            setEffort($, level)
+            save($)
+            $.ui.toast(`effort ${level} from your next message`)
+          },
+        }, h(Text, { color: c.effort[i], bold: level === effort, underline: level === effort }, level))))),
+    open === 'tokens' && tokens > 0 && panel()) as RenderElement
+  return h(Box, { flexDirection: 'column' }, engineHint, isDesktop ? monospace(line) : line) as RenderElement
 }
 
 export const register: Register = (on, options) => {
   settings = readSettings(options)
-  let timerStarted = false
 
   on('command.run', { command: 'hairline-fonts' }, async $ => ({
     text: (await readNerdFont($, true)) ? 'Nerd Font found: the line shows its glyphs.' : 'No Nerd Font found: the line shows no glyphs.',
@@ -800,20 +709,13 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     session = emptySession()
-    void load($) // the session starts without waiting for the line's data
-    if (!timerStarted) {
-      timerStarted = true
-      $.clock.every(LOCATION_REFRESH_MS, () => {
-        if (isTerminalStarted) void readLocation($)
-        void readExchange($)
-        if (open === 'tokens') redraw($) // the cache countdown changes with no event
-      })
-    }
+    loading = null
     return result
   })
 
   // Streams carry characters, so the speed divides by the characters per token of the last response.
   on('turn.step', async function* ($, e, next) {
+    await ensureLoaded($) // with no render before it (claude -p), the effort pick restores here
     if (e.agentId) return yield* next(e)
     session.seen = { effort: e.effort === undefined ? null : String(e.effort), model: e.model }
     if (session.pickedEffort) {
