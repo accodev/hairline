@@ -63,7 +63,9 @@ export type View = {
   dots: string // the speed dot line, 6 cells
   isLit: boolean // the dot line draws at full strength while a reply streams or a request waits
   hasNerdFont: boolean
-  isPanelOpen: boolean
+  open: 'tokens' | 'model' | 'effort' | null
+  models: { label: string; isCurrent: boolean }[] // the models the picker offers
+  efforts: string[] // the thinking levels the model supports
   lastTurn: { tokens: number; ms: number; usd: number | null } | null
   lastRequestAt: number | null
   cacheTtlMinutes: number
@@ -208,8 +210,9 @@ function limitWindows(v: View): string {
   }).join('')
 }
 
-// Everything after the location: the context, the speed group, the tokens and the limits.
-function figures(v: View): string {
+// Everything after the location: the context, the speed group, the tokens and the limits. The
+// token count is its own part, so a click on it can be found.
+function figures(v: View): { before: string; tokens: string; after: string } {
   const pct = v.context?.percent ?? null
   const pctText = pct === null
     ? dim(` ${'--%'.padStart(PCT_WIDTH)}`)
@@ -219,35 +222,81 @@ function figures(v: View): string {
   const slot = `${v.slot.slice(0, bright)}${dim(v.slot.slice(bright))}`
   // A running tool's name fills the dot line's cells too.
   const dots = v.phase === 'tool' ? '' : ` ${paint(v.dots, { color: C.folder, dim: !v.isLit })}`
-  const tokens = counted(v.stats)
-  const tokenText = tokens === 0 ? dim('--- tok') : paint(`${human(tokens)} tok`, { inverse: v.isPanelOpen })
-  return `${contextBar(pct, v.compactAt)}${pctText}${dim(` ${size.padStart(CONTEXT_WIDTH)}`)}${SEP}${phaseGlyph(v)}${slot}${dots}${SEP}${tokenText}${limitWindows(v)}`
+  const count = counted(v.stats)
+  return {
+    before: `${contextBar(pct, v.compactAt)}${pctText}${dim(` ${size.padStart(CONTEXT_WIDTH)}`)}${SEP}${phaseGlyph(v)}${slot}${dots}${SEP}`,
+    tokens: count === 0 ? dim('--- tok') : paint(`${human(count)} tok`, { inverse: v.open === 'tokens' }),
+    after: limitWindows(v),
+  }
 }
 
-function rightSide(v: View): string {
-  const parts: string[] = []
+// The model, the thinking level and the session ID, each with the action a click on it runs.
+function rightParts(v: View): { text: string; action?: string }[] {
+  const parts: { text: string; action?: string }[] = []
   if (v.model) {
-    const effort = v.effort ? ` ${paint(v.effort, EFFORT_COLORS[v.effort] === undefined ? { dim: true } : { color: EFFORT_COLORS[v.effort] })}` : ''
-    parts.push(`${modelLabel(v.model)}${effort}`)
+    parts.push({ text: paint(modelLabel(v.model), { inverse: v.open === 'model' }), action: v.models.length > 1 ? 'model' : undefined })
+    if (v.effort) {
+      const style: Style = EFFORT_COLORS[v.effort] === undefined ? { dim: true } : { color: EFFORT_COLORS[v.effort] }
+      parts.push({ text: ' ' }, { text: paint(v.effort, { ...style, inverse: v.open === 'effort' }), action: v.efforts.length > 1 ? 'effort' : undefined })
+    }
   }
-  if (v.sessionId) parts.push(paint(v.sessionId.slice(0, 8), { color: C.track, dim: true }))
-  return parts.join(SEP)
+  if (v.sessionId) {
+    if (v.model) parts.push({ text: SEP })
+    parts.push({ text: paint(v.sessionId.slice(0, 8), { color: C.track, dim: true }), action: 'id' })
+  }
+  return parts
 }
 
-// Only the location shrinks, so the figures never wrap or lose a cell.
-function mainLine(v: View, width: number): string {
-  const right = rightSide(v)
+// As in Claude Code, the right side keeps its cells: the location shrinks first, then the figures
+// lose cells from their end.
+function mainLine(v: View, width: number, hits: Hit[]): string {
+  const parts = rightParts(v)
+  const right = parts.map(p => p.text).join('')
+  const rightWidth = visibleWidth(right)
+  const isRightShown = right !== '' && width - rightWidth - 2 >= 20
+  const leftRoom = isRightShown ? width - rightWidth - 2 : width
   const fig = figures(v)
+  const figText = fig.before + fig.tokens + fig.after
   const location = v.folder ? `${paint(v.folder, { color: C.folder })}${v.branch ? `${dim(':')}${paint(v.branch, { color: C.branch })}` : ''}` : ''
-  const fixed = visibleWidth(fig) + (right ? 2 + visibleWidth(right) : 0)
-  const room = width - fixed - 2 // 2 cells between the location and the context bar
-  if (location && room >= 4) {
-    const shown = truncateToWidth(location, room, '…')
-    const pad = Math.max(0, width - visibleWidth(shown) - 2 - fixed)
-    return `${shown}  ${fig}${' '.repeat(pad)}${right ? `  ${right}` : ''}`
+  const locationRoom = leftRoom - visibleWidth(figText) - 2 // 2 cells between the location and the context bar
+  const shown = location && locationRoom >= 4 ? `${truncateToWidth(location, locationRoom, '…')}  ` : ''
+  const left = truncateToWidth(shown + figText, leftRoom, '')
+  const tokensFrom = visibleWidth(shown) + visibleWidth(fig.before)
+  const tokensTo = tokensFrom + visibleWidth(fig.tokens)
+  if (counted(v.stats) > 0 && tokensTo <= leftRoom) hits.push({ row: 0, from: tokensFrom, to: tokensTo, action: 'tokens' })
+  if (!isRightShown) return left
+  let at = width - rightWidth
+  for (const p of parts) {
+    const w = visibleWidth(p.text)
+    if (p.action) hits.push({ row: 0, from: at, to: at + w, action: p.action })
+    at += w
   }
-  if (right && width >= fixed) return `${fig}${' '.repeat(width - fixed)}  ${right}`
-  return truncateToWidth(fig, width, '')
+  return `${left}${' '.repeat(width - visibleWidth(left) - rightWidth)}${right}`
+}
+
+// A picker's options, right-aligned under the line as Claude Code shows them, wrapped to the width.
+function pickerRows(label: string, options: { text: string; action: string }[], width: number, firstRow: number, hits: Hit[]): string[] {
+  const rows: { parts: { text: string; action?: string }[]; width: number }[] = []
+  let current = { parts: [{ text: dim(`${label} `) }] as { text: string; action?: string }[], width: label.length + 1 }
+  for (const o of options) {
+    const w = visibleWidth(o.text) + 1
+    if (current.width + w > width && current.parts.length > 1) {
+      rows.push(current)
+      current = { parts: [], width: 0 }
+    }
+    current.parts.push({ text: ' ' }, o)
+    current.width += w
+  }
+  rows.push(current)
+  return rows.map((r, i) => {
+    let at = Math.max(0, width - r.width)
+    for (const p of r.parts) {
+      const w = visibleWidth(p.text)
+      if (p.action) hits.push({ row: firstRow + i, from: at, to: at + w, action: p.action })
+      at += w
+    }
+    return `${' '.repeat(Math.max(0, width - r.width))}${r.parts.map(p => p.text).join('')}`
+  })
 }
 
 function row(label: string, body: string): string {
@@ -293,10 +342,26 @@ function panel(v: View): string[] {
   return [row('cost', cost), row('tokens', tokens), row('turns', turns), ...(burns ? [row('limits', burns)] : [])]
 }
 
-export function drawFooter(v: View, width: number): string[] {
-  const lines = [mainLine(v, width)]
-  if (v.isPanelOpen && counted(v.stats) > 0) lines.push(...panel(v))
+export type Hit = { row: number; from: number; to: number; action: string }
+
+// The lines, and where each clickable part sits: Pi routes mouse events to the footer in fullscreen mode.
+export function drawFooter(v: View, width: number): { lines: string[]; hits: Hit[] } {
+  const hits: Hit[] = []
+  const lines = [mainLine(v, width, hits)]
+  if (v.open === 'model') {
+    lines.push(...pickerRows('model', v.models.map((m, i) => ({
+      text: paint(m.label, m.isCurrent ? { bold: true, underline: true } : { dim: true }),
+      action: `model:${i}`,
+    })), width, lines.length, hits))
+  }
+  if (v.open === 'effort') {
+    lines.push(...pickerRows('thinking', v.efforts.map(level => ({
+      text: paint(level, { ...(EFFORT_COLORS[level] === undefined ? { dim: true } : { color: EFFORT_COLORS[level] }), bold: level === v.effort, underline: level === v.effort }),
+      action: `effort:${level}`,
+    })), width, lines.length, hits))
+  }
+  if (v.open === 'tokens' && counted(v.stats) > 0) lines.push(...panel(v))
   // Other extensions' setStatus texts, which Pi's own footer would show.
   if (v.statuses.length) lines.push(v.statuses.join(dim('  ')))
-  return lines.map(line => truncateToWidth(line, width, ''))
+  return { lines: lines.map(line => truncateToWidth(line, width, '')), hits }
 }

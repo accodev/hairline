@@ -30,7 +30,9 @@ const view = (over: Partial<View> = {}): View => ({
   dots: '⠀⠀⠀⠀⠀⠀',
   isLit: false,
   hasNerdFont: false,
-  isPanelOpen: false,
+  open: null,
+  models: [{ label: 'opus 5.5', isCurrent: true }, { label: 'sonnet 5.5', isCurrent: false }],
+  efforts: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
   lastTurn: null,
   lastRequestAt: null,
   cacheTtlMinutes: 60,
@@ -41,7 +43,7 @@ const view = (over: Partial<View> = {}): View => ({
 })
 
 test('draws location, context, speed, tokens, limits, model and session id on one line', () => {
-  const [line, ...rest] = drawFooter(view(), 160)
+  const [line, ...rest] = drawFooter(view(), 160).lines
   assert.equal(rest.length, 0)
   assert.equal(visibleWidth(line!), 160)
   const text = plain(line!)
@@ -50,9 +52,9 @@ test('draws location, context, speed, tokens, limits, model and session id on on
 })
 
 test('a narrow footer shortens the location first and keeps every figure', () => {
-  const full = plain(drawFooter(view(), 160)[0]!)
+  const full = plain(drawFooter(view(), 160).lines[0]!)
   const figuresAt = full.indexOf('━')
-  const narrow = plain(drawFooter(view({ folder: 'a-very-long-folder-name-for-a-repository' }), 120)[0]!)
+  const narrow = plain(drawFooter(view({ folder: 'a-very-long-folder-name-for-a-repository' }), 120).lines[0]!)
   assert.equal(visibleWidth(narrow), 120)
   assert.match(narrow, /…/)
   assert.match(narrow, /7d 91%/)
@@ -60,8 +62,39 @@ test('a narrow footer shortens the location first and keeps every figure', () =>
   assert.ok(figuresAt > 0)
 })
 
+test('a narrow footer keeps the model, the thinking level and the session id', () => {
+  for (const width of [100, 120, 140]) {
+    const line = plain(drawFooter(view(), width).lines[0]!)
+    assert.equal(visibleWidth(line), width)
+    assert.match(line, /opus 5\.5 high · 02c6e8dd$/)
+  }
+})
+
+test('the token count, the model, the thinking level and the session id are clickable', () => {
+  const { lines, hits } = drawFooter(view(), 160)
+  const text = plain(lines[0]!)
+  const at = (action: string) => {
+    const hit = hits.find(h => h.action === action)!
+    return [...text].slice(hit.from, hit.to).join('')
+  }
+  assert.equal(at('tokens'), '10.7M tok')
+  assert.equal(at('model'), 'opus 5.5')
+  assert.equal(at('effort'), 'high')
+  assert.equal(at('id'), '02c6e8dd')
+})
+
+test('the pickers list the models and the thinking levels under the line', () => {
+  const model = drawFooter(view({ open: 'model' }), 160)
+  assert.match(plain(model.lines[1]!), /model {2}opus 5\.5 sonnet 5\.5$/)
+  assert.deepEqual(model.hits.filter(h => h.row === 1).map(h => h.action), ['model:0', 'model:1'])
+  const effort = drawFooter(view({ open: 'effort' }), 160)
+  assert.match(plain(effort.lines[1]!), /thinking {2}off minimal low medium high xhigh$/)
+  const xhigh = effort.hits.find(h => h.action === 'effort:xhigh')!
+  assert.equal([...plain(effort.lines[1]!)].slice(xhigh.from, xhigh.to).join(''), 'xhigh')
+})
+
 test('the panel lists cost, tokens, turns and limits, and other extensions keep their status', () => {
-  const lines = drawFooter(view({ isPanelOpen: true, statuses: ['lsp: ready'] }), 160).map(plain)
+  const lines = drawFooter(view({ open: 'tokens', statuses: ['lsp: ready'] }), 160).lines.map(plain)
   assert.equal(lines.length, 6)
   assert.match(lines[1]!, /^ {2}cost {4}\$4\.82 · \$2\.00 per active hour/)
   assert.match(lines[2]!, /^ {2}tokens {2}80 in · 2M cache write · 8\.3M cache read · 400k out · 81% cache hit/)
@@ -76,8 +109,8 @@ test('the speed group keeps one width in every phase', () => {
   const tool = toolSlot([{ name: 'bash', arg: 'npm test' }], TOOL_WIDTH)
   assert.equal(tool.text.length, TOOL_WIDTH)
   assert.equal(tool.bright, 4)
-  const toolLine = plain(drawFooter(view({ phase: 'tool', tools: [{ name: 'bash', arg: 'npm test' }], slot: tool.text }), 160)[0]!)
-  const idleLine = plain(drawFooter(view(), 160)[0]!)
+  const toolLine = plain(drawFooter(view({ phase: 'tool', tools: [{ name: 'bash', arg: 'npm test' }], slot: tool.text }), 160).lines[0]!)
+  const idleLine = plain(drawFooter(view(), 160).lines[0]!)
   assert.equal(toolLine.indexOf('10.7M tok'), idleLine.indexOf('10.7M tok'))
 })
 
@@ -127,16 +160,22 @@ test('the extension draws the footer from Pi events', async () => {
     on: (name: string, fn: (e: unknown, c: unknown) => Promise<unknown>) => handlers.set(name, fn),
     registerCommand: (name: string, options: { handler: (args: string, c: unknown) => Promise<void> }) => commands.set(name, options),
     getSettings: () => ({ hairline: { currency: 'USD' }, compaction: { reserveTokens: 40_000 } }),
-    getThinkingLevel: () => 'high',
+    getThinkingLevel: () => thinking,
+    setThinkingLevel: (level: string) => { thinking = level },
+    setModel: async (m: { id: string }) => { picked.push(m.id); return true },
   }
+  let thinking = 'high'
+  const picked: string[] = []
   hairline(pi as never)
   const usage = { input: 1_000, output: 500, cacheRead: 9_000, cacheWrite: 2_000, totalTokens: 12_500, cost: { total: 0.25 } }
   const entries: unknown[] = []
-  let footer: { render(width: number): string[]; dispose(): void } | null = null
+  let footer: { render(width: number): string[]; dispose(): void; handleMouse(e: object): unknown } | null = null
   const ctx = {
     cwd: join(repo, 'src'),
     mode: 'tui',
-    model: { id: 'claude-opus-5-5', provider: 'anthropic', contextWindow: 200_000 },
+    model: { id: 'claude-opus-5-5', provider: 'anthropic', contextWindow: 200_000, reasoning: true },
+    scopedModels: [{ model: { id: 'claude-opus-5-5', provider: 'anthropic' } }, { model: { id: 'claude-sonnet-5-5', provider: 'anthropic' } }],
+    modelRegistry: { getAvailable: () => [] },
     sessionManager: { getSessionId: () => '02c6e8dd-64d4', getEntries: () => entries },
     getContextUsage: () => ({ tokens: 50_000, contextWindow: 200_000, percent: 25 }),
     ui: {
@@ -166,10 +205,24 @@ test('the extension draws the footer from Pi events', async () => {
   await emit('agent_settled', { aborted: false })
   assert.match(line(), /○ .* 13k tok · 5h 38%/)
 
-  await commands.get('hairline')!.handler('', ctx)
+  const click = async (text: string, row = 0) => {
+    const x = [...plain(footer!.render(160)[row]!)].join('').indexOf(text)
+    assert.ok(x >= 0, text)
+    for (const type of ['press', 'click']) footer!.handleMouse({ type, button: 'left', x, y: row })
+    await new Promise(done => setTimeout(done, 10))
+  }
+  await click('13k tok')
   const panel = footer!.render(160).map(plain)
   assert.match(panel[1]!, /cost {4}\$0\.25/)
   assert.match(panel[3]!, /1 turns/)
+  await click('13k tok')
+  assert.equal(footer!.render(160).length, 1)
+  await click('opus 5.5')
+  await click('sonnet 5.5', 1)
+  assert.deepEqual(picked, ['claude-sonnet-5-5'])
+  await click('high')
+  await click('low', 1)
+  assert.equal(thinking, 'low')
   footer!.dispose()
   await emit('session_shutdown', { reason: 'quit' })
 })
