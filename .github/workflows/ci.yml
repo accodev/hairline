@@ -35,3 +35,13 @@ jobs:
 
       - name: Run the mod tests
         run: claude plugin test .
+
+      # After the Claude Code steps: node_modules would push the plugin past validate's 4096-file digest.
+      - name: Install the Pi extension's dev packages
+        run: npm ci
+
+      - name: Type-check the Pi extension
+        run: npm run typecheck:pi
+
+      - name: Run the Pi extension tests
+        run: npm run test:pi
