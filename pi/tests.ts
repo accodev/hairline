@@ -5,6 +5,7 @@ import { visibleWidth } from '@earendil-works/pi-tui'
 import { frameText, newSpeed, sendingText, speedDots, tickSpeed } from './anim.ts'
 import { drawFooter, duration, human, modelLabel, SLOT_WIDTH, slotTarget, TOOL_WIDTH, toolArg, toolSlot, type View } from './line.ts'
 
+const chr = String.fromCharCode(27)
 const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '')
 
 const view = (over: Partial<View> = {}): View => ({
@@ -31,6 +32,7 @@ const view = (over: Partial<View> = {}): View => ({
   isLit: false,
   hasNerdFont: false,
   open: null,
+  hover: null,
   models: [{ label: 'opus 5.5', isCurrent: true }, { label: 'sonnet 5.5', isCurrent: false }],
   efforts: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
   lastTurn: null,
@@ -81,6 +83,12 @@ test('the token count, the model, the thinking level and the session id are clic
   assert.equal(at('model'), 'opus 5.5')
   assert.equal(at('effort'), 'high')
   assert.equal(at('id'), '02c6e8dd')
+})
+
+test('the part under the pointer is underlined', () => {
+  const line = drawFooter(view({ hover: 'model' }), 160).lines[0]!
+  assert.ok(line.includes(`${chr}[4mopus 5.5${chr}[0m`))
+  assert.ok(!drawFooter(view(), 160).lines[0]!.includes(`${chr}[4m`))
 })
 
 test('the pickers list the models and the thinking levels under the line', () => {
@@ -183,6 +191,7 @@ test('the extension draws the footer from Pi events', async () => {
         footer = factory({ requestRender() {} }, {}, { getGitBranch: () => 'feat/pi', getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} })
       },
       notify() {},
+      onTerminalInput: () => () => {},
     },
   }
   const emit = (name: string, e: unknown = {}) => handlers.get(name)!(e, ctx)
