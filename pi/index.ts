@@ -7,7 +7,7 @@ import { isScrambling, newSlot, newSpeed, sendingText, setSlotKind, slotText, sp
 import { basename, counted, drawFooter, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, slotTarget, type Stats, toolArg, toolName, type Tool, type View } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
-const RATE_WARMUP_MS = 1_000
+const RATE_MIN_WINDOW_MS = 100 // the first chunks' rate, over at least this, so one chunk draws no spike
 const RATIO_MIN_TOKENS = 20 // shorter responses give a noisy characters-per-token ratio
 const RATIO_MIN = 2
 const RATIO_MAX = 6
@@ -146,6 +146,9 @@ export default function hairline(pi: ExtensionAPI) {
   let open: Open = null
   let ui: ExtensionContext | null = null // for notify and the model list, from the last session_start
   let hits: Hit[] = []
+  let hover: string | null = null
+  let footerTop: number | null = null // the footer's first screen row, learned from its mouse events
+  let footerRows = 0
   let currentModel: Model<any> | undefined // the session's model, which model_select replaces
   let lastRequestAt: number | null = null
   let lastTurn: { tokens: number; ms: number; usd: number | null } | null = null
@@ -257,9 +260,31 @@ export default function hairline(pi: ExtensionAPI) {
     c.ui.setFooter((tui, _theme, footerData) => {
       requestRender = () => tui.requestRender()
       const unsubscribe = footerData.onBranchChange(() => tui.requestRender())
+      // Pi sends pointer moves only to the component under the pointer, so the footer never hears
+      // that the pointer left it. The raw SGR reports tell, without consuming them.
+      const watchPointer = (data: string) => {
+        const m = /\x1b\[<(\d+);(\d+);(\d+)M/.exec(data)
+        if (m && hover && footerTop !== null && (Number(m[1]) & 32)) {
+          const row = Number(m[3]) - 1 - footerTop
+          if (row < 0 || row >= footerRows) setHover(null)
+        }
+        return undefined
+      }
+      const stopListening = c.ui.onTerminalInput(watchPointer)
+      // Fullscreen mode's own listener comes first and consumes every mouse report, so this one
+      // moves to the front of pi-tui's listener set. Without that field, hover clears only on
+      // moves inside the footer.
+      const listeners = (tui as unknown as { inputListeners?: Set<unknown> }).inputListeners
+      if (listeners instanceof Set && listeners.size > 1) {
+        // Pi may wrap the handler, so the one just added, the set's last, is this one.
+        const all = [...listeners]
+        listeners.clear()
+        for (const l of [all[all.length - 1], ...all.slice(0, -1)]) listeners.add(l)
+      }
       return {
         dispose() {
           unsubscribe()
+          stopListening()
           requestRender = null
           stopTimers()
         },
@@ -290,6 +315,7 @@ export default function hairline(pi: ExtensionAPI) {
             isLit: isStreaming || phase === 'sending',
             hasNerdFont,
             open,
+            hover,
             models: models.map(m => ({ label: modelLabel(m.id), isCurrent: m.id === model })),
             efforts: supportedEfforts(),
             lastTurn,
@@ -300,10 +326,16 @@ export default function hairline(pi: ExtensionAPI) {
             now: Date.now(),
           }, width)
           hits = drawn.hits
+          footerRows = drawn.lines.length
           return drawn.lines
         },
         // Fullscreen mode routes the mouse here; regular mode leaves it to the terminal.
         handleMouse(event) {
+          footerTop = event.screenY - event.y
+          if (event.type === 'move') {
+            setHover(hits.find(h => h.row === event.y && event.x >= h.from && event.x < h.to)?.action ?? null)
+            return undefined
+          }
           if (event.button !== 'left' || (event.type !== 'press' && event.type !== 'click')) return undefined
           const hit = hits.find(h => h.row === event.y && event.x >= h.from && event.x < h.to)
           if (!hit) return undefined
@@ -312,6 +344,12 @@ export default function hairline(pi: ExtensionAPI) {
         },
       }
     })
+  }
+
+  function setHover(next: string | null): void {
+    if (next === hover) return
+    hover = next
+    redraw()
   }
 
   function setOpen(next: Open): void {
@@ -443,8 +481,9 @@ export default function hairline(pi: ExtensionAPI) {
     stream.chars += piece
     stream.recent.push({ at: now, chars: piece })
     while (stream.recent[0]!.at < now - RATE_WINDOW_MS) stream.recent.shift()
-    if (now - stream.firstAt >= RATE_WARMUP_MS && now - stream.lastSample >= 1000 / settings.refreshPerSecond) {
-      const windowSecs = Math.min(RATE_WINDOW_MS, now - stream.firstAt) / 1000
+    // No warm-up: the figure shows from the first chunk. Claude Code waits 1 s.
+    if (now - stream.lastSample >= 1000 / settings.refreshPerSecond) {
+      const windowSecs = Math.min(RATE_WINDOW_MS, Math.max(RATE_MIN_WINDOW_MS, now - stream.firstAt)) / 1000
       tps = Math.round(stream.recent.reduce((sum, r) => sum + r.chars, 0) / charsPerToken / windowSecs)
       stream.lastSample = now
       redraw()

@@ -64,6 +64,7 @@ export type View = {
   isLit: boolean // the dot line draws at full strength while a reply streams or a request waits
   hasNerdFont: boolean
   open: 'tokens' | 'model' | 'effort' | null
+  hover: string | null // the action of the part under the mouse pointer
   models: { label: string; isCurrent: boolean }[] // the models the picker offers
   efforts: string[] // the thinking levels the model supports
   lastTurn: { tokens: number; ms: number; usd: number | null } | null
@@ -210,6 +211,13 @@ function limitWindows(v: View): string {
   }).join('')
 }
 
+export type Hit = { row: number; from: number; to: number; action: string }
+
+// The part under the pointer is underlined, so it reads as a control before the click.
+function hoverable(text: string, action: string | undefined, v: View): string {
+  return action && action === v.hover ? `\x1b[4m${text}\x1b[0m` : text
+}
+
 // Everything after the location: the context, the speed group, the tokens and the limits. The
 // token count is its own part, so a click on it can be found.
 function figures(v: View): { before: string; tokens: string; after: string } {
@@ -225,7 +233,7 @@ function figures(v: View): { before: string; tokens: string; after: string } {
   const count = counted(v.stats)
   return {
     before: `${contextBar(pct, v.compactAt)}${pctText}${dim(` ${size.padStart(CONTEXT_WIDTH)}`)}${SEP}${phaseGlyph(v)}${slot}${dots}${SEP}`,
-    tokens: count === 0 ? dim('--- tok') : paint(`${human(count)} tok`, { inverse: v.open === 'tokens' }),
+    tokens: count === 0 ? dim('--- tok') : hoverable(paint(`${human(count)} tok`, { inverse: v.open === 'tokens' }), 'tokens', v),
     after: limitWindows(v),
   }
 }
@@ -242,9 +250,10 @@ function rightParts(v: View): { text: string; action?: string }[] {
   }
   if (v.sessionId) {
     if (v.model) parts.push({ text: SEP })
-    parts.push({ text: paint(v.sessionId.slice(0, 8), { color: C.track, dim: true }), action: 'id' })
+    // Dim only: slot 8 with dim on top vanished on dark terminal schemes.
+    parts.push({ text: dim(v.sessionId.slice(0, 8)), action: 'id' })
   }
-  return parts
+  return parts.map(p => ({ ...p, text: hoverable(p.text, p.action, v) }))
 }
 
 // As in Claude Code, the right side keeps its cells: the location shrinks first, then the figures
@@ -275,7 +284,7 @@ function mainLine(v: View, width: number, hits: Hit[]): string {
 }
 
 // A picker's options, right-aligned under the line as Claude Code shows them, wrapped to the width.
-function pickerRows(label: string, options: { text: string; action: string }[], width: number, firstRow: number, hits: Hit[]): string[] {
+function pickerRows(label: string, options: { text: string; action: string }[], width: number, firstRow: number, hits: Hit[], v: View): string[] {
   const rows: { parts: { text: string; action?: string }[]; width: number }[] = []
   let current = { parts: [{ text: dim(`${label} `) }] as { text: string; action?: string }[], width: label.length + 1 }
   for (const o of options) {
@@ -284,7 +293,7 @@ function pickerRows(label: string, options: { text: string; action: string }[], 
       rows.push(current)
       current = { parts: [], width: 0 }
     }
-    current.parts.push({ text: ' ' }, o)
+    current.parts.push({ text: ' ' }, { ...o, text: hoverable(o.text, o.action, v) })
     current.width += w
   }
   rows.push(current)
@@ -342,7 +351,6 @@ function panel(v: View): string[] {
   return [row('cost', cost), row('tokens', tokens), row('turns', turns), ...(burns ? [row('limits', burns)] : [])]
 }
 
-export type Hit = { row: number; from: number; to: number; action: string }
 
 // The lines, and where each clickable part sits: Pi routes mouse events to the footer in fullscreen mode.
 export function drawFooter(v: View, width: number): { lines: string[]; hits: Hit[] } {
@@ -352,13 +360,13 @@ export function drawFooter(v: View, width: number): { lines: string[]; hits: Hit
     lines.push(...pickerRows('model', v.models.map((m, i) => ({
       text: paint(m.label, m.isCurrent ? { bold: true, underline: true } : { dim: true }),
       action: `model:${i}`,
-    })), width, lines.length, hits))
+    })), width, lines.length, hits, v))
   }
   if (v.open === 'effort') {
     lines.push(...pickerRows('thinking', v.efforts.map(level => ({
       text: paint(level, { ...(EFFORT_COLORS[level] === undefined ? { dim: true } : { color: EFFORT_COLORS[level] }), bold: level === v.effort, underline: level === v.effort }),
       action: `effort:${level}`,
-    })), width, lines.length, hits))
+    })), width, lines.length, hits, v))
   }
   if (v.open === 'tokens' && counted(v.stats) > 0) lines.push(...panel(v))
   // Other extensions' setStatus texts, which Pi's own footer would show.

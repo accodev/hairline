@@ -25,7 +25,7 @@ Run `/reload-plugins` in an open session to load it.
 pi install git:github.com/accodev/hairline
 ```
 
-Run `/reload` in an open session to load it. In Pi, hairline replaces the footer and keeps other extensions' status texts on a line below it. In Pi's fullscreen mode (`tuiMode`, the default) the line takes the same clicks as in Claude Code: the token count opens the panel, the model and the thinking level open pickers, and the session ID copies itself. Pi's regular mode leaves the mouse to the terminal, so commands stand in for the clicks there:
+Run `/reload` in an open session to load it. In Pi, hairline replaces the footer and keeps other extensions' status texts on a line below it. In Pi's fullscreen mode (`tuiMode`, the default) the line takes the same clicks as in Claude Code: the token count opens the panel, the model and the thinking level open pickers, and the session ID copies itself. The part under the pointer is underlined. Pi's regular mode leaves the mouse to the terminal, so commands stand in for the clicks there:
 
 | Command | Effect |
 |---|---|
@@ -33,7 +33,7 @@ Run `/reload` in an open session to load it. In Pi, hairline replaces the footer
 | `/hairline-id` | Copies the session ID. |
 | `/hairline-fonts` | Looks for a Nerd Font again. |
 
-The model picker offers the session's scoped models, or every model with a key. Pi's thinking level takes the place of effort. Pi's own `/model`, `Ctrl+P` and `Shift+Tab` still work. The 5h and 7d limits come from the headers of Anthropic subscription responses, so other providers show none. The context bar marks where `compaction.reserveTokens` starts auto-compaction. The token panel has no subagent share, because Pi subagents run as separate sessions. Hairline keeps the font answer, the last limits and each session's turn time in `~/.pi/agent/hairline.json`. Pi's `settings.json` takes the options below under a `hairline` key, for example `"hairline": { "currency": "USD" }`.
+The model picker offers the session's scoped models, or every model with a key. Pi's thinking level takes the place of effort. Pi's own `/model`, `Ctrl+P` and `Shift+Tab` still work. The speed shows from the first streamed chunk, without Claude Code's 1 second warm-up. The 5h and 7d limits come from the headers of Anthropic subscription responses, so other providers show none. The context bar marks where `compaction.reserveTokens` starts auto-compaction. The token panel has no subagent share, because Pi subagents run as separate sessions. Hairline keeps the font answer, the last limits and each session's turn time in `~/.pi/agent/hairline.json`. Pi's `settings.json` takes the options below under a `hairline` key, for example `"hairline": { "currency": "USD" }`.
 
 ## Settings
 
