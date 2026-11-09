@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AssistantMessage } from '@earendil-works/pi-ai'
+import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { isScrambling, newSlot, newSpeed, sendingText, setSlotKind, slotText, speedDots, tickSlot, tickSpeed } from './anim.ts'
-import { basename, counted, drawFooter, HOUR_MS, type Limit, type LimitStart, type Phase, slotTarget, type Stats, toolArg, toolName, type Tool, type View } from './line.ts'
+import { basename, counted, drawFooter, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, slotTarget, type Stats, toolArg, toolName, type Tool, type View } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
 const RATE_WARMUP_MS = 1_000
@@ -142,7 +142,11 @@ export default function hairline(pi: ExtensionAPI) {
   let isStreaming = false
   let charsPerToken = 4 // the usual English ratio, until the first response measures it
   let hasNerdFont = false
-  let isPanelOpen = false
+  type Open = View['open']
+  let open: Open = null
+  let ui: ExtensionContext | null = null // for notify and the model list, from the last session_start
+  let hits: Hit[] = []
+  let currentModel: Model<any> | undefined // the session's model, which model_select replaces
   let lastRequestAt: number | null = null
   let lastTurn: { tokens: number; ms: number; usd: number | null } | null = null
   let run: { at: number; tokens: number; usd: number | null } | null = null
@@ -264,7 +268,8 @@ export default function hairline(pi: ExtensionAPI) {
           const target = slotTarget(phase, tps, tools)
           const text = phase === 'sending' ? sendingText(Date.now() - sentAt, target.text.length) : target.text
           const branch = footerData.getGitBranch()
-          return drawFooter({
+          const models = pickableModels()
+          const drawn = drawFooter({
             folder,
             branch: branch === 'detached' ? 'HEAD' : branch,
             model,
@@ -284,7 +289,9 @@ export default function hairline(pi: ExtensionAPI) {
             dots: speedDots(speed, isStreaming, phase === 'sending'),
             isLit: isStreaming || phase === 'sending',
             hasNerdFont,
-            isPanelOpen,
+            open,
+            models: models.map(m => ({ label: modelLabel(m.id), isCurrent: m.id === model })),
+            efforts: supportedEfforts(),
             lastTurn,
             lastRequestAt,
             cacheTtlMinutes: settings.cacheTtlMinutes,
@@ -292,17 +299,64 @@ export default function hairline(pi: ExtensionAPI) {
             statuses: [...footerData.getExtensionStatuses().values()],
             now: Date.now(),
           }, width)
+          hits = drawn.hits
+          return drawn.lines
+        },
+        // Fullscreen mode routes the mouse here; regular mode leaves it to the terminal.
+        handleMouse(event) {
+          if (event.button !== 'left' || (event.type !== 'press' && event.type !== 'click')) return undefined
+          const hit = hits.find(h => h.row === event.y && event.x >= h.from && event.x < h.to)
+          if (!hit) return undefined
+          if (event.type === 'click') void act(hit.action)
+          return { handled: true }
         },
       }
     })
   }
 
+  function setOpen(next: Open): void {
+    open = open === next ? null : next
+    redraw()
+  }
+
+  // The session's scoped models, as Pi's own picker offers them, or every model with a key.
+  function pickableModels(): Model<any>[] {
+    if (!ui) return []
+    const scoped = ui.scopedModels.map(s => s.model)
+    return scoped.length ? scoped : ui.modelRegistry.getAvailable()
+  }
+
+  function supportedEfforts(): string[] {
+    return currentModel ? getSupportedThinkingLevels(currentModel) : []
+  }
+
+  async function copySessionId(c: ExtensionContext): Promise<void> {
+    const id = c.sessionManager.getSessionId()
+    const isCopied = await copyToClipboard(id).then(() => true, () => false)
+    c.ui.notify(isCopied ? `session id copied: ${id}` : `session id: ${id}`, 'info')
+  }
+
+  async function act(action: string): Promise<void> {
+    if (action === 'tokens' || action === 'model' || action === 'effort') return setOpen(action)
+    if (!ui) return
+    if (action === 'id') return copySessionId(ui)
+    const [kind, value] = action.split(':') as [string, string]
+    open = null
+    redraw()
+    if (kind === 'model') {
+      const picked = pickableModels()[Number(value)]
+      if (!picked) return
+      const isSet = await pi.setModel(picked)
+      ui.ui.notify(isSet ? `model ${picked.id}` : `model not changed: ${picked.provider} has no API key`, isSet ? 'info' : 'warning')
+    } else if (kind === 'effort') {
+      pi.setThinkingLevel(value as Parameters<ExtensionAPI['setThinkingLevel']>[0])
+      ui.ui.notify(`thinking ${pi.getThinkingLevel()}`, 'info')
+    }
+  }
+
   pi.registerCommand('hairline', {
-    description: 'Show or hide the hairline token panel: cost, cache use and how fast each limit fills',
-    handler: async () => {
-      isPanelOpen = !isPanelOpen
-      redraw()
-    },
+    description: 'Show or hide the hairline token panel; in fullscreen mode, a click on the token count does too',
+    handler: async () => setOpen('tokens'),
   })
 
   pi.registerCommand('hairline-fonts', {
@@ -314,17 +368,15 @@ export default function hairline(pi: ExtensionAPI) {
 
   pi.registerCommand('hairline-id', {
     description: 'Copy the session ID',
-    handler: async (_args, c) => {
-      const id = c.sessionManager.getSessionId()
-      const isCopied = await copyToClipboard(id).then(() => true, () => false)
-      c.ui.notify(isCopied ? `session id copied: ${id}` : `session id: ${id}`, 'info')
-    },
+    handler: async (_args, c) => copySessionId(c),
   })
 
   pi.on('session_start', async (_e, c) => {
+    ui = c
     settings = readSettings((pi.getSettings() as Record<string, unknown>).hairline)
     folder = repoFolder(c.cwd)
     model = c.model?.id ?? ''
+    currentModel = c.model
     sessionId = c.sessionManager.getSessionId()
     stats = sumUsage(c)
     const store = readStore()
@@ -339,17 +391,19 @@ export default function hairline(pi: ExtensionAPI) {
     void readExchange()
     refresh = setInterval(() => {
       void readExchange()
-      if (isPanelOpen) redraw() // the cache countdown changes with no event
+      if (open === 'tokens') redraw() // the cache countdown changes with no event
     }, REFRESH_MS)
     refresh.unref?.()
   })
 
   pi.on('session_shutdown', async () => {
     stopTimers()
+    ui = null
   })
 
   pi.on('model_select', async (e, c) => {
     model = e.model.id
+    currentModel = e.model
     readContext(c)
     redraw()
   })
