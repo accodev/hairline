@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { isScrambling, newSlot, newSpeed, sendingText, setSlotKind, slotText, speedDots, tickSlot, tickSpeed } from './anim.ts'
-import { basename, counted, drawFooter, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, slotTarget, type Stats, toolArg, toolName, type Tool, type View } from './line.ts'
+import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, slotTarget, type Stats, toolArg, toolName, type Tool, type View } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
 const RATE_MIN_WINDOW_MS = 100 // the first chunks' rate, over at least this, so one chunk draws no spike
@@ -25,6 +25,10 @@ const LIMIT_HEADERS = [
 ] as const
 // A window reset restarts the fill rate. Reset times jitter by seconds, so only 1 minute counts.
 const WINDOW_MOVED_MS = 60_000
+// claude.ai's own usage endpoint, undocumented: it alone reports the extra usage spend.
+const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
+const EXTRA_REFRESH_MS = 60_000
+const EXTRA_RETRY_MS = 600_000
 
 type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number }
 
@@ -155,6 +159,8 @@ export default function hairline(pi: ExtensionAPI) {
   let run: { at: number; tokens: number; usd: number | null } | null = null
   let exchange: { currency: string; rate: number; fetchedOn: string } | null = null
   let exchangeTriedAt = 0
+  let extra: Extra | null = null
+  let extraNextAt = 0
   const slot = newSlot()
   const speed = newSpeed()
   let stream = { firstAt: 0, lastSample: 0, recent: [] as { at: number; chars: number }[], chars: 0 }
@@ -201,6 +207,23 @@ export default function hairline(pi: ExtensionAPI) {
       if (!res.ok || !rate || rate <= 0) return
       exchange = { currency: settings.currency, rate, fetchedOn: today }
       exchangeTriedAt = 0
+      redraw()
+    } catch {}
+  }
+
+  // Only a Claude subscription login (an sk-ant-oat token) has extra usage; an API key has none.
+  async function readExtra(): Promise<void> {
+    if (!ui || Date.now() < extraNextAt) return
+    extraNextAt = Date.now() + EXTRA_RETRY_MS
+    try {
+      const key = await ui.modelRegistry.getApiKeyForProvider('anthropic')
+      if (!key?.includes('sk-ant-oat')) return
+      const res = await fetch(USAGE_URL, { headers: { authorization: `Bearer ${key}`, 'anthropic-beta': 'oauth-2025-04-20' }, signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) return
+      const next = readExtraBody(await res.text())
+      extraNextAt = Date.now() + EXTRA_REFRESH_MS
+      if (JSON.stringify(next) === JSON.stringify(extra)) return
+      extra = next
       redraw()
     } catch {}
   }
@@ -308,6 +331,7 @@ export default function hairline(pi: ExtensionAPI) {
             costStart: saved.costStart,
             limits,
             limitStart: saved.limitStart,
+            extra,
             phase,
             tools,
             slot: slotText(slot, text),
@@ -427,8 +451,10 @@ export default function hairline(pi: ExtensionAPI) {
     install(c)
     void readNerdFont()
     void readExchange()
+    void readExtra()
     refresh = setInterval(() => {
       void readExchange()
+      void readExtra()
       if (open === 'tokens') redraw() // the cache countdown changes with no event
     }, REFRESH_MS)
     refresh.unref?.()

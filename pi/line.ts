@@ -40,6 +40,8 @@ export type Phase = 'sending' | 'receiving' | 'tool' | 'idle'
 export type Tool = { name: string; arg: string }
 export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 export type LimitStart = Record<string, { pct: number; at: number; resetsAt?: string }>
+// The month's extra usage, in the currency the account is billed in.
+export type Extra = { used: number; limit: number; currency: string; pct: number }
 export type Stats = { input: number; write: number; read: number; output: number; costUsd: number | null }
 export type Style = { color?: number; dim?: boolean; bold?: boolean; underline?: boolean; inverse?: boolean }
 
@@ -57,6 +59,7 @@ export type View = {
   costStart: number | null
   limits: Limit[]
   limitStart: LimitStart
+  extra: Extra | null
   phase: Phase
   tools: Tool[]
   slot: string // the speed slot as the animation shows it, SLOT_WIDTH or TOOL_WIDTH cells
@@ -211,6 +214,28 @@ function limitWindows(v: View): string {
   }).join('')
 }
 
+// claude.ai's usage endpoint gives amounts in the currency's minor units: 972 with 2 decimal
+// places is 9.72. Its shape is undocumented, so anything unexpected reads as no extra usage.
+export function readExtraBody(text: string): Extra | null {
+  const x = (JSON.parse(text) as { extra_usage?: { is_enabled?: boolean; monthly_limit?: number | null; used_credits?: number | null; utilization?: number | null; currency?: string | null; decimal_places?: number | null } | null }).extra_usage
+  if (!x?.is_enabled || typeof x.monthly_limit !== 'number' || typeof x.used_credits !== 'number' || x.monthly_limit <= 0) return null
+  const scale = 10 ** (x.decimal_places ?? 2)
+  const used = x.used_credits / scale
+  const limit = x.monthly_limit / scale
+  return { used, limit, currency: x.currency || 'USD', pct: x.utilization ?? (used / limit) * 100 }
+}
+
+// 9.72 keeps its cents, a whole 100 drops them.
+export function amount(value: number, currency: string): string {
+  const digits = Number.isInteger(value) ? 0 : 2
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: 2 }).format(value)
+}
+
+function extraSpend(v: View): string {
+  const x = v.extra
+  return x ? `${SEP}${dim('extra ')}${paint(amount(x.used, x.currency), { color: severity(x.pct) })}${dim(`/${amount(x.limit, x.currency)}`)}` : ''
+}
+
 export type Hit = { row: number; from: number; to: number; action: string }
 
 // The part under the pointer is underlined, so it reads as a control before the click.
@@ -234,7 +259,7 @@ function figures(v: View): { before: string; tokens: string; after: string } {
   return {
     before: `${contextBar(pct, v.compactAt)}${pctText}${dim(` ${size.padStart(CONTEXT_WIDTH)}`)}${SEP}${phaseGlyph(v)}${slot}${dots}${SEP}`,
     tokens: count === 0 ? dim('--- tok') : hoverable(paint(`${human(count)} tok`, { inverse: v.open === 'tokens' }), 'tokens', v),
-    after: limitWindows(v),
+    after: limitWindows(v) + extraSpend(v),
   }
 }
 
