@@ -169,6 +169,44 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
   await ui.unmount()
 })
 
+test('shows the month\'s extra usage spend after the limits, only while it is enabled', async ($, on) => {
+  const clock = mock.clock(on)
+  let isEnabled = true
+  const asked: { url: string; auth?: string; beta?: string }[] = []
+  on('session.authorize', () => ({ value: { handle: 'h1', kind: 'bearer' } }))
+  on('http.fetch', ($, e) => {
+    asked.push({ url: e.url, auth: e.init?.auth, beta: e.init?.headers?.['anthropic-beta'] })
+    const body = e.url.includes('/api/oauth/usage')
+      ? { five_hour: { utilization: 25 }, extra_usage: { is_enabled: isEnabled, monthly_limit: 10_000, used_credits: 972, utilization: 9.72, currency: 'EUR', decimal_places: 2 } }
+      : { rates: { EUR: 0.9 } }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(body) } }
+  })
+  on('session.start', () => ({ cwd: 'C:/code/hairline' }))
+  on('session.cwd', () => ({ value: 'C:/code/hairline' }))
+  on('fs.stat', () => ({ deny: 'ENOENT' }) as never)
+  on('fs.read', () => ({ deny: 'ENOENT' }) as never)
+  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] } }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.id', () => ({ value: SESSION_ID }))
+  on('config.list', () => ({ value: [] }))
+  on('ui.render', ($, e) => ({ type: 'Text', props: {}, children: ['hint' in e.props ? e.props.hint : ''] }))
+
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:/code/hairline' })
+  const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
+  await clock.settle()
+  expect(asked.find(a => a.url.includes('/api/oauth/usage'))).toEqual({ url: 'https://api.anthropic.com/api/oauth/usage', auth: 'h1', beta: 'oauth-2025-04-20' })
+  expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^€\s?9[.,]72$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\/€\s?100$/ })).toBeDefined()
+
+  // Turned off on claude.ai: the reading a minute later hides the figure.
+  isEnabled = false
+  await clock.advance(65_000)
+  await clock.settle()
+  expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('draws the line in the desktop band above the prompt, under other mods and never over a survey', async ($, on) => {
   mock.clock(on)
   mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: null, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })

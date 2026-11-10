@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { visibleWidth } from '@earendil-works/pi-tui'
 import { frameText, newSpeed, sendingText, speedDots, tickSpeed } from './anim.ts'
-import { drawFooter, duration, human, modelLabel, SLOT_WIDTH, slotTarget, TOOL_WIDTH, toolArg, toolSlot, type View } from './line.ts'
+import { drawFooter, duration, human, modelLabel, readExtraBody, SLOT_WIDTH, slotTarget, TOOL_WIDTH, toolArg, toolSlot, type View } from './line.ts'
 
 const chr = String.fromCharCode(27)
 const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '')
@@ -25,6 +25,7 @@ const view = (over: Partial<View> = {}): View => ({
     { kind: 'seven_day', percentUsed: 91, resetsAt: new Date(Date.now() + 3 * 86_400_000).toISOString() },
   ],
   limitStart: {},
+  extra: null,
   phase: 'idle',
   tools: [],
   slot: slotTarget('idle', 0, []).text,
@@ -51,6 +52,15 @@ test('draws location, context, speed, tokens, limits, model and session id on on
   const text = plain(line!)
   assert.match(text, /^market-it:main {2}━━━━──┃─ {2}52% 104k\/200k · ○ {5}idle ⠀{6} · 10.7M tok · 5h 38% · 7d 91% resets 3d/)
   assert.match(text, /opus 5\.5 high · 02c6e8dd$/)
+})
+
+test('the month\'s extra usage spend follows the limits, only while it is enabled', () => {
+  const body = (isEnabled: boolean) => JSON.stringify({ five_hour: { utilization: 25 }, extra_usage: { is_enabled: isEnabled, monthly_limit: 10_000, used_credits: 972, utilization: 9.72, currency: 'EUR', decimal_places: 2 } })
+  const extra = readExtraBody(body(true))
+  assert.deepEqual(extra, { used: 9.72, limit: 100, currency: 'EUR', pct: 9.72 })
+  assert.match(plain(drawFooter(view({ extra }), 180).lines[0]!), /7d 91% resets 3d · extra €\s?9[.,]72\/€\s?100 /)
+  assert.equal(readExtraBody(body(false)), null)
+  assert.equal(readExtraBody('{"extra_usage":null}'), null)
 })
 
 test('a narrow footer shortens the location first and keeps every figure', () => {

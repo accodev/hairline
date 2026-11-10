@@ -41,6 +41,11 @@ const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
   { kind: 'seven_day', label: '7d' },
 ] as const
+// claude.ai's own usage endpoint, undocumented: it alone reports the extra usage spend. A change in
+// its shape hides the figure. CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC refuses the call.
+const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
+const EXTRA_REFRESH_MS = 60_000
+const EXTRA_RETRY_MS = 600_000
 
 // Terminal slots 0-15 (ansi256(n), n < 16) take each person's color scheme. Other surfaces get
 // Claude Code theme keys, which follow the light or dark theme.
@@ -122,6 +127,11 @@ let settings: Settings = { currency: 'EUR', usdRate: 0.9, cacheTtlMinutes: 60, r
 // Set once a day: the ECB publishes one rate per working day.
 let exchange: { currency: string; rate: number; fetchedOn: string } | null = null
 let exchangeTriedAt = 0
+
+// The month's extra usage, in the currency the account is billed in.
+type Extra = { used: number; limit: number; currency: string; pct: number }
+let extra: Extra | null = null
+let extraNextAt = 0
 
 function readSettings(options: PluginOptions): Settings {
   const code = String(options.currency || 'EUR').trim().toUpperCase().replace(/^RMB$/, 'CNY')
@@ -227,6 +237,40 @@ function money(usd: number): string {
   const rate = settings.currency === 'USD' ? 1 : exchange?.currency === settings.currency ? exchange.rate : null
   const amount = new Intl.NumberFormat(undefined, { style: 'currency', currency: settings.currency, maximumFractionDigits: 2 }).format(usd * (rate ?? settings.usdRate))
   return rate === null ? `~${amount}` : amount
+}
+
+// Amounts come in the billing currency's minor units: 972 with 2 decimal places is 9.72.
+function readExtraBody(text: string): Extra | null {
+  const x = (JSON.parse(text) as { extra_usage?: { is_enabled?: boolean; monthly_limit?: number | null; used_credits?: number | null; utilization?: number | null; currency?: string | null; decimal_places?: number | null } | null }).extra_usage
+  if (!x?.is_enabled || typeof x.monthly_limit !== 'number' || typeof x.used_credits !== 'number' || x.monthly_limit <= 0) return null
+  const scale = 10 ** (x.decimal_places ?? 2)
+  const used = x.used_credits / scale
+  const limit = x.monthly_limit / scale
+  return { used, limit, currency: x.currency || 'USD', pct: x.utilization ?? (used / limit) * 100 }
+}
+
+// Only a subscription login holds a bearer credential; an API key has no extra usage to show.
+async function readExtra($: EngineInterface): Promise<void> {
+  const now = await $.clock.now() // the test kit's clock, so a test can move to the next reading
+  if (now < extraNextAt) return
+  extraNextAt = now + EXTRA_RETRY_MS
+  try {
+    const auth = await $.session.authorize()
+    if (auth?.kind !== 'bearer') return
+    const { ok, text } = await $.http.fetch(USAGE_URL, { auth: auth.handle, headers: { 'anthropic-beta': 'oauth-2025-04-20' } })
+    if (!ok) return
+    const next = readExtraBody(text)
+    extraNextAt = now + EXTRA_REFRESH_MS
+    if (JSON.stringify(next) === JSON.stringify(extra)) return
+    extra = next
+    redraw($)
+  } catch {}
+}
+
+// 9.72 keeps its cents, a whole 100 drops them.
+function amount(value: number, currency: string): string {
+  const digits = Number.isInteger(value) ? 0 : 2
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: 2 }).format(value)
 }
 
 function modelLabel(id: string): string {
@@ -424,6 +468,7 @@ async function load($: EngineInterface): Promise<void> {
   loaded = true
   void $.command.register({ name: 'hairline-fonts', description: 'Look for a Nerd Font again, after installing or removing one' }).catch(() => {})
   void readExchange($)
+  void readExtra($)
   void readCompactAt($)
   const [saved, usage, rows] = await Promise.all([
     restore($),
@@ -539,6 +584,15 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       </Box>
     )
   })
+
+  const extraSpend = extra && (
+    <Box key="extra">
+      <Sep />
+      <Text dimColor>extra </Text>
+      <Text color={severity(c, extra.pct)}>{amount(extra.used, extra.currency)}</Text>
+      <Text dimColor>{`/${amount(extra.limit, extra.currency)}`}</Text>
+    </Box>
+  )
 
   const Row = ({ label, children }: { label: string; children: RenderChildren }) => (
     <Box flexDirection="row" paddingLeft={2}>
@@ -678,6 +732,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             </Box>
           )}
           {windows}
+          {extraSpend}
           </Box>
         </Box>
         <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
@@ -806,6 +861,7 @@ export const register: Register = (on, options) => {
       $.clock.every(LOCATION_REFRESH_MS, () => {
         if (isTerminalStarted) void readLocation($)
         void readExchange($)
+        void readExtra($)
         if (open === 'tokens') redraw($) // the cache countdown changes with no event
       })
     }
