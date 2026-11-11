@@ -585,7 +585,9 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     )
   })
 
-  const extraSpend = extra && (
+  // Extra usage is billed only after the 5h or 7d window is full, so the spend shows only then.
+  const isCapped = RATE_LIMIT_WINDOWS.some(({ kind }) => (rateLimits.find(l => l.kind === kind)?.percentUsed ?? 0) >= 100)
+  const extraSpend = extra && isCapped && (
     <Box key="extra">
       <Sep />
       <Text dimColor>extra </Text>

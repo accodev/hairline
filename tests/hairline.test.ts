@@ -169,15 +169,15 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
   await ui.unmount()
 })
 
-test('shows the month\'s extra usage spend after the limits, only while it is enabled', async ($, on) => {
+async function mountWithExtra($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], weekUsed: number) {
   const clock = mock.clock(on)
-  let isEnabled = true
+  const state = { isEnabled: true }
   const asked: { url: string; auth?: string; beta?: string }[] = []
   on('session.authorize', () => ({ value: { handle: 'h1', kind: 'bearer' } }))
   on('http.fetch', ($, e) => {
     asked.push({ url: e.url, auth: e.init?.auth, beta: e.init?.headers?.['anthropic-beta'] })
     const body = e.url.includes('/api/oauth/usage')
-      ? { five_hour: { utilization: 25 }, extra_usage: { is_enabled: isEnabled, monthly_limit: 10_000, used_credits: 972, utilization: 9.72, currency: 'EUR', decimal_places: 2 } }
+      ? { five_hour: { utilization: 25 }, extra_usage: { is_enabled: state.isEnabled, monthly_limit: 10_000, used_credits: 972, utilization: 9.72, currency: 'EUR', decimal_places: 2 } }
       : { rates: { EUR: 0.9 } }
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(body) } }
   })
@@ -185,7 +185,7 @@ test('shows the month\'s extra usage spend after the limits, only while it is en
   on('session.cwd', () => ({ value: 'C:/code/hairline' }))
   on('fs.stat', () => ({ deny: 'ENOENT' }) as never)
   on('fs.read', () => ({ deny: 'ENOENT' }) as never)
-  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] } }))
+  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [{ kind: 'seven_day', percentUsed: weekUsed }] } }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.id', () => ({ value: SESSION_ID }))
   on('config.list', () => ({ value: [] }))
@@ -194,15 +194,27 @@ test('shows the month\'s extra usage spend after the limits, only while it is en
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:/code/hairline' })
   const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
   await clock.settle()
+  return { ui, clock, state, asked }
+}
+
+test('shows the month\'s extra usage spend after a full limit, only while it is enabled', async ($, on) => {
+  const { ui, clock, state, asked } = await mountWithExtra($, on, 100)
   expect(asked.find(a => a.url.includes('/api/oauth/usage'))).toEqual({ url: 'https://api.anthropic.com/api/oauth/usage', auth: 'h1', beta: 'oauth-2025-04-20' })
   expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^€\s?9[.,]72$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^\/€\s?100$/ })).toBeDefined()
 
   // Turned off on claude.ai: the reading a minute later hides the figure.
-  isEnabled = false
+  state.isEnabled = false
   await clock.advance(65_000)
   await clock.settle()
+  expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('hides the extra usage spend while both limits have room', async ($, on) => {
+  const { ui } = await mountWithExtra($, on, 99)
+  expect(await ui.find({ type: 'Text', text: '99%' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeUndefined()
   await ui.unmount()
 })
