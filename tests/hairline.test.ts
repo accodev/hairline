@@ -118,6 +118,33 @@ test('draws location, context, limits, model and a copyable session id', { optio
   expect(await working.find({ type: 'Text', text: 'market-it' })).toBeDefined()
 })
 
+test('a worktree shows the repository name, then the worktree and the branch', async ($, on) => {
+  const clock = mock.clock(on)
+  const top = 'C:/code/hairline/.claude/worktrees/extra-usage'
+  const at = (path: string, end: string) => path.replace(/\\/g, '/').endsWith(end)
+  on('session.start', () => ({ cwd: top }))
+  on('session.cwd', () => ({ value: top }))
+  on('fs.stat', ($, e) => (at(e.path, '/extra-usage/.git') ? { value: { kind: 'file', size: 60, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (
+    at(e.path, '/extra-usage/.git') ? { value: 'gitdir: C:/code/hairline/.git/worktrees/extra-usage\n' }
+      : at(e.path, '/.git/worktrees/extra-usage/HEAD') ? { value: 'ref: refs/heads/feat/x\n' }
+        : { deny: 'ENOENT' }) as never)
+  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] } }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.id', () => ({ value: SESSION_ID }))
+  on('config.list', () => ({ value: [] }))
+  on('ui.render', ($, e) => ({ type: 'Text', props: {}, children: ['hint' in e.props ? e.props.hint : ''] }))
+
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: top })
+  const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
+  await clock.settle()
+  expect(await ui.find({ type: 'Text', text: 'hairline' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /extra-usage$/ }))?.props.dimColor).toBe(true)
+  expect(await ui.find({ type: 'Text', text: ' · ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'feat/x' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('shows cost in the chosen currency at the day\'s ECB rate', { options: { currency: 'rmb' } }, async ($, on) => {
   mock.clock(on)
   // Another session saved last: its entry must not replace this one's.

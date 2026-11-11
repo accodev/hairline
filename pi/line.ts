@@ -16,7 +16,7 @@ const BURN_MIN_HOURS = 0.1
 export const HOUR_MS = 3_600_000
 // Nerd Font glyphs are private-use code points that any other font draws as a box.
 // U+21BB, Claude Code's first reset arrow, is missing from common terminal fonts.
-export const NERD_GLYPHS = { reset: '\uf017' } as const // nf-fa-clock_o
+export const NERD_GLYPHS = { reset: '\uf017', worktree: '\uf07b', branch: '\ue725' } as const // nf-fa-clock_o, nf-fa-folder, nf-dev-git_branch
 const IDLE_GLYPH = '\u25cb' // a white circle, which every terminal font draws
 export const PHASE_WORDS = { idle: 'idle', sending: 'sending', tool: 'running' } as const
 export const SLOT_WIDTH = TPS_WIDTH + ' t/s'.length
@@ -46,7 +46,8 @@ export type Stats = { input: number; write: number; read: number; output: number
 export type Style = { color?: number; dim?: boolean; bold?: boolean; underline?: boolean; inverse?: boolean }
 
 export type View = {
-  folder: string
+  folder: string // the repository's name: in a worktree, the main checkout's folder
+  worktree: string | null
   branch: string | null
   model: string
   effort: string | null
@@ -283,6 +284,23 @@ function rightParts(v: View): { text: string; action?: string }[] {
   return parts.map(p => ({ ...p, text: hoverable(p.text, p.action, v) }))
 }
 
+function where(v: View): string {
+  const glyph = (g: string) => (v.hasNerdFont ? `${g} ` : '')
+  const parts = [
+    v.worktree ? dim(glyph(NERD_GLYPHS.worktree) + v.worktree) : '',
+    v.branch ? paint(glyph(NERD_GLYPHS.branch) + v.branch, { color: C.branch }) : '',
+  ].filter(Boolean)
+  return parts.length ? `${dim(' (')}${parts.join(dim(' · '))}${dim(')')}` : ''
+}
+
+// A linked worktree's git folder is <main checkout>/.git/worktrees/<id>, so the main checkout names
+// the repository. A submodule's is .git/modules/<name>, and it stays a repository of its own.
+export function worktreeOf(gitDir: string, top: string): { name: string; worktree: string | null } {
+  const base = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
+  const main = gitDir.match(/^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/)?.[1]
+  return main ? { name: base(main), worktree: base(top) } : { name: base(top), worktree: null }
+}
+
 // As in Claude Code, the right side keeps its cells: the location shrinks first, then the figures
 // lose cells from their end.
 function mainLine(v: View, width: number, hits: Hit[]): string {
@@ -293,7 +311,7 @@ function mainLine(v: View, width: number, hits: Hit[]): string {
   const leftRoom = isRightShown ? width - rightWidth - 2 : width
   const fig = figures(v)
   const figText = fig.before + fig.tokens + fig.after
-  const location = v.folder ? `${paint(v.folder, { color: C.folder })}${v.branch ? `${dim(':')}${paint(v.branch, { color: C.branch })}` : ''}` : ''
+  const location = v.folder ? paint(v.folder, { color: C.folder }) + where(v) : ''
   const locationRoom = leftRoom - visibleWidth(figText) - 2 // 2 cells between the location and the context bar
   const shown = location && locationRoom >= 4 ? `${truncateToWidth(location, locationRoom, '…')}  ` : ''
   const left = truncateToWidth(shown + figText, leftRoom, '')

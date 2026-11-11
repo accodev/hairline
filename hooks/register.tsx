@@ -25,7 +25,7 @@ const RATES_URL = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=' // E
 // installed Nerd Font the phase shows blank cells of the same width, so the line stays still.
 // U+21BB, the reset arrow before, is missing from common terminal fonts: the fallback glyph spilled
 // over the time after it.
-const NERD_GLYPHS = { tool: '\uf013', reset: '\uf017' } as const // nf-fa-cog, nf-fa-clock_o
+const NERD_GLYPHS = { tool: '\uf013', reset: '\uf017', worktree: '\uf07b', branch: '\ue725' } as const // nf-fa-cog, nf-fa-clock_o, nf-fa-folder, nf-dev-git_branch
 // The desktop app's monospaced face has no Nerd Font glyphs and Text cannot pick another font,
 // so it gets emoji, which every desktop system font set draws.
 const DESKTOP_GLYPHS = { tool: '\u2699\ufe0f' } as const // gear
@@ -80,7 +80,8 @@ type Stats = {
 type LimitStart = Record<string, { pct: number; at: number; resetsAt?: string }>
 
 type Session = {
-  folder: string
+  folder: string // the repository's name: in a worktree, the main checkout's folder
+  worktree: string | null
   branch: string | null
   effort: string | null
   stats: Stats
@@ -106,7 +107,7 @@ type Session = {
 
 const emptyStats = (): Stats => ({ input: 0, write: 0, read: 0, output: 0, main: 0, sub: 0, turns: 0, activeMs: 0, costStart: null })
 const emptySession = (): Session => ({
-  folder: '', branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', tools: [], sentAt: 0, streaming: false,
+  folder: '', worktree: null, branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', tools: [], sentAt: 0, streaming: false,
   context: null, compactAt: null, rateLimits: [], costUsd: null, lastTurn: null, lastTurnUsd: null, lastRequestAt: null, pickedEffort: null, pickBase: null, seen: { effort: null, model: null },
 })
 let session = emptySession()
@@ -405,7 +406,7 @@ async function findNerdFont($: EngineInterface): Promise<boolean> {
 }
 
 // The working copy's top folder and its HEAD file, found once: the session's directory never moves.
-type Repo = { top: string; head: string | null }
+type Repo = { name: string; worktree: string | null; head: string | null }
 let repo: Repo | null = null
 
 async function findRepo($: EngineInterface): Promise<Repo> {
@@ -414,15 +415,23 @@ async function findRepo($: EngineInterface): Promise<Repo> {
   for (let n = parts.length; n > 0; n--) {
     const top = parts.slice(0, n).join('/')
     const stat = await $.fs.stat(`${top}/.git`).catch(() => null)
-    if (stat?.kind === 'dir') return { top, head: `${top}/.git/HEAD` }
+    if (stat?.kind === 'dir') return { name: basename(top), worktree: null, head: `${top}/.git/HEAD` }
     // A worktree's .git is a file that names its git folder.
     if (stat?.kind === 'file') {
       const dir = String(await $.fs.read(`${top}/.git`)).match(/^gitdir:\s*(.+)$/m)?.[1]?.trim()
-      if (!dir) return { top, head: null }
-      return { top, head: `${/^([a-z]:)?[\\/]/i.test(dir) ? dir : `${top}/${dir}`}/HEAD` }
+      if (!dir) return { name: basename(top), worktree: null, head: null }
+      const gitDir = /^([a-z]:)?[\\/]/i.test(dir) ? dir : `${top}/${dir}`
+      return { ...worktreeOf(gitDir, top), head: `${gitDir}/HEAD` }
     }
   }
-  return { top: cwd, head: null }
+  return { name: basename(cwd), worktree: null, head: null }
+}
+
+// A linked worktree's git folder is <main checkout>/.git/worktrees/<id>, so the main checkout names
+// the repository. A submodule's is .git/modules/<name>, and it stays a repository of its own.
+function worktreeOf(gitDir: string, top: string): { name: string; worktree: string | null } {
+  const main = gitDir.match(/^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/)?.[1]
+  return main ? { name: basename(main), worktree: basename(top) } : { name: basename(top), worktree: null }
 }
 
 // Reads the HEAD file, so the 5 s refresh starts no git process. A detached HEAD shows as git shows it.
@@ -431,8 +440,9 @@ async function readLocation($: EngineInterface): Promise<void> {
     repo ??= await findRepo($)
     const head = repo.head ? await $.fs.read(repo.head).then(text => String(text).trim(), () => null) : null
     const branch = head === null ? null : (head.match(/^ref:\s*refs\/heads\/(.+)$/)?.[1] ?? 'HEAD')
-    if (basename(repo.top) === session.folder && branch === session.branch) return
-    session.folder = basename(repo.top)
+    if (repo.name === session.folder && repo.worktree === session.worktree && branch === session.branch) return
+    session.folder = repo.name
+    session.worktree = repo.worktree
     session.branch = branch
     redraw($)
   } catch {}
@@ -522,7 +532,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const slot = (text: string, width: number) => text.padStart(width)
   if (!isDesktop) startTerminal($)
   const [model, sessionId] = await Promise.all([isDesktop ? '' : $.session.model().catch(() => ''), $.session.id().catch(() => '')])
-  const { folder, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
+  const { folder, worktree, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
   const tokens = counted(stats)
   const pct = context?.percent ?? null
   const now = Date.now()
@@ -681,8 +691,12 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           {!isDesktop && (
             <Box flexDirection="row" flexShrink={1} overflow="hidden">
               <Text color={c.folder} wrap="truncate-end">{folder}</Text>
-              {branch && <Text dimColor>:</Text>}
+              {(worktree || branch) && <Text dimColor> (</Text>}
+              {worktree && <Text dimColor wrap="truncate-end">{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${worktree}`}</Text>}
+              {worktree && branch && <Text dimColor> · </Text>}
+              {branch && hasNerdFont && <Text color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>}
               {branch && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
+              {(worktree || branch) && <Text dimColor>)</Text>}
             </Box>
           )}
           <Box flexDirection="row" flexShrink={0}>

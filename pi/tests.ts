@@ -3,13 +3,14 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { visibleWidth } from '@earendil-works/pi-tui'
 import { frameText, newSpeed, sendingText, speedDots, tickSpeed } from './anim.ts'
-import { drawFooter, duration, human, modelLabel, readExtraBody, SLOT_WIDTH, slotTarget, TOOL_WIDTH, toolArg, toolSlot, type View } from './line.ts'
+import { drawFooter, duration, human, modelLabel, readExtraBody, SLOT_WIDTH, slotTarget, TOOL_WIDTH, toolArg, toolSlot, type View, worktreeOf } from './line.ts'
 
 const chr = String.fromCharCode(27)
 const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '')
 
 const view = (over: Partial<View> = {}): View => ({
   folder: 'market-it',
+  worktree: null,
   branch: 'main',
   model: 'claude-opus-5-5',
   effort: 'high',
@@ -50,7 +51,7 @@ test('draws location, context, speed, tokens, limits, model and session id on on
   assert.equal(rest.length, 0)
   assert.equal(visibleWidth(line!), 160)
   const text = plain(line!)
-  assert.match(text, /^market-it:main {2}━━━━──┃─ {2}52% 104k\/200k · ○ {5}idle ⠀{6} · 10.7M tok · 5h 38% · 7d 91% resets 3d/)
+  assert.match(text, /^market-it \(main\) {2}━━━━──┃─ {2}52% 104k\/200k · ○ {5}idle ⠀{6} · 10.7M tok · 5h 38% · 7d 91% resets 3d/)
   assert.match(text, /opus 5\.5 high · 02c6e8dd$/)
 })
 
@@ -63,6 +64,15 @@ test('the month\'s extra usage spend follows the limits, only while it is enable
   assert.match(plain(drawFooter(capped, 180).lines[0]!), /7d 100% resets 3d · extra €\s?9[.,]72\/€\s?100 /)
   assert.equal(readExtraBody(body(false)), null)
   assert.equal(readExtraBody('{"extra_usage":null}'), null)
+})
+
+test('a worktree shows after the repository name, next to the branch', () => {
+  assert.deepEqual(worktreeOf('C:/code/hairline/.git/worktrees/extra-usage', 'C:/code/hairline/.claude/worktrees/extra-usage'), { name: 'hairline', worktree: 'extra-usage' })
+  assert.deepEqual(worktreeOf('/home/dev/app/.git/modules/lib', '/home/dev/app/lib'), { name: 'lib', worktree: null })
+  const line = (v: Partial<View>) => plain(drawFooter(view({ folder: 'hairline', worktree: 'extra-usage', branch: 'feat/x', ...v }), 180).lines[0]!)
+  assert.match(line({}), /^hairline \(extra-usage · feat\/x\) {2}━/)
+  assert.match(line({ hasNerdFont: true }), /^hairline \(\uf07b extra-usage · \ue725 feat\/x\) {2}━/)
+  assert.match(line({ worktree: null, branch: null }), /^hairline {2}━/)
 })
 
 test('a narrow footer shortens the location first and keeps every figure', () => {
@@ -209,7 +219,7 @@ test('the extension draws the footer from Pi events', async () => {
   const emit = (name: string, e: unknown = {}) => handlers.get(name)!(e, ctx)
   const line = () => plain(footer!.render(160)[0]!)
   await emit('session_start', { reason: 'startup' })
-  assert.match(line(), /^market-it:feat\/pi .* 25% 50k\/200k · ○ {5}idle .* --- tok/)
+  assert.match(line(), /^market-it \((?: )?feat\/pi\) .* 25% 50k\/200k · ○ {5}idle .* --- tok/)
   assert.match(line(), /opus 5\.5 high · 02c6e8dd$/)
 
   await emit('agent_start')

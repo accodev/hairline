@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { isScrambling, newSlot, newSpeed, sendingText, setSlotKind, slotText, speedDots, tickSlot, tickSpeed } from './anim.ts'
-import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, slotTarget, type Stats, toolArg, toolName, type Tool, type View } from './line.ts'
+import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, slotTarget, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
 const RATE_MIN_WINDOW_MS = 100 // the first chunks' rate, over at least this, so one chunk draws no spike
@@ -90,14 +90,20 @@ async function findNerdFont(): Promise<boolean> {
   })
 }
 
-// The working copy's top folder, which a worktree's .git file also marks.
-function repoFolder(cwd: string): string {
+// The working copy's top folder, which a worktree's .git file also marks. That file names the
+// worktree's git folder, which sits in the main checkout.
+function findRepo(cwd: string): { name: string; worktree: string | null } {
   const parts = cwd.replace(/[\\/]+$/, '').split(/[\\/]/)
   for (let n = parts.length; n > 0; n--) {
     const top = parts.slice(0, n).join('/')
-    if (existsSync(`${top}/.git`)) return basename(top)
+    if (!existsSync(`${top}/.git`)) continue
+    try {
+      const dir = readFileSync(`${top}/.git`, 'utf8').match(/^gitdir:\s*(.+)$/m)?.[1]?.trim()
+      if (dir) return worktreeOf(/^([a-z]:)?[\\/]/i.test(dir) ? dir : `${top}/${dir}`, top)
+    } catch {} // a folder: the main checkout
+    return { name: basename(top), worktree: null }
   }
-  return basename(cwd)
+  return { name: basename(cwd), worktree: null }
 }
 
 function readLimits(headers: Record<string, string>): Limit[] {
@@ -131,7 +137,7 @@ export default function hairline(pi: ExtensionAPI) {
   let timer: ReturnType<typeof setInterval> | null = null
   let refresh: ReturnType<typeof setInterval> | null = null
 
-  let folder = ''
+  let repo: { name: string; worktree: string | null } = { name: '', worktree: null }
   let model = ''
   let sessionId = ''
   let stats: Stats = { input: 0, write: 0, read: 0, output: 0, costUsd: null }
@@ -318,7 +324,8 @@ export default function hairline(pi: ExtensionAPI) {
           const branch = footerData.getGitBranch()
           const models = pickableModels()
           const drawn = drawFooter({
-            folder,
+            folder: repo.name,
+            worktree: repo.worktree,
             branch: branch === 'detached' ? 'HEAD' : branch,
             model,
             effort: model ? pi.getThinkingLevel() : null,
@@ -436,7 +443,7 @@ export default function hairline(pi: ExtensionAPI) {
   pi.on('session_start', async (_e, c) => {
     ui = c
     settings = readSettings((pi.getSettings() as Record<string, unknown>).hairline)
-    folder = repoFolder(c.cwd)
+    repo = findRepo(c.cwd)
     model = c.model?.id ?? ''
     currentModel = c.model
     sessionId = c.sessionManager.getSessionId()
