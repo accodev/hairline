@@ -71,13 +71,13 @@ test('a worktree shows after the repository name, next to the branch', () => {
   assert.deepEqual(worktreeOf('C:/code/hairline/.git/worktrees/extra-usage', 'C:/code/hairline/.claude/worktrees/extra-usage'), { name: 'hairline', worktree: 'extra-usage' })
   assert.deepEqual(worktreeOf('/home/dev/app/.git/modules/lib', '/home/dev/app/lib'), { name: 'lib', worktree: null })
   const line = (v: Partial<View>) => plain(drawFooter(view({ folder: 'hairline', worktree: 'extra-usage', branch: 'feat/x', isLocationOpen: true, ...v }), 180).lines[0]!)
-  assert.match(line({}), /^hairline \(extra-usage · feat\/x\) {2}━/)
-  assert.match(line({ hasNerdFont: true }), /^hairline \(\uf07b extra-usage · \ue725 feat\/x\) {2}━/)
+  assert.match(line({}), /^hairline \(extra-usage · feat\/x\) \[-\] {2}━/)
+  assert.match(line({ hasNerdFont: true }), /^hairline \(\uf07b extra-usage · \ue725 feat\/x\) \[-\] {2}━/)
   assert.match(line({ worktree: null, branch: null }), /^hairline {2}━/)
   // Folded, a click on [+] unfolds it.
   assert.match(line({ isLocationOpen: false }), /^hairline \[\+\] {2}━/)
   const hits = drawFooter(view({ folder: 'hairline', worktree: 'extra-usage', branch: 'feat/x', isLocationOpen: false }), 180).hits
-  assert.deepEqual(hits.find(h => h.action === 'location'), { row: 0, from: 8, to: 12, action: 'location' })
+  assert.deepEqual(hits.find(h => h.action === 'location'), { row: 0, from: 9, to: 12, action: 'location' })
 })
 
 test('a narrow footer shortens the location first and keeps every figure', () => {

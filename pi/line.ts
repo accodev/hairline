@@ -287,14 +287,18 @@ function rightParts(v: View): { text: string; action?: string }[] {
 
 // Folded to [+] by default, so a long branch or worktree name leaves the figures their room.
 function where(v: View): string {
-  if (!v.worktree && !v.branch) return ''
-  if (!v.isLocationOpen) return dim(' [+]')
+  if (!v.worktree && !v.branch || !v.isLocationOpen) return ''
   const glyph = (g: string) => (v.hasNerdFont ? `${g} ` : '')
   const parts = [
     v.worktree ? dim(glyph(NERD_GLYPHS.worktree) + v.worktree) : '',
     v.branch ? paint(glyph(NERD_GLYPHS.branch) + v.branch, { color: C.branch }) : '',
   ].filter(Boolean)
-  return parts.length ? `${dim(' (')}${parts.join(dim(' · '))}${dim(')')}` : ''
+  return `${dim(' (')}${parts.join(dim(' · '))}${dim(')')}`
+}
+
+// Only the mark takes the click and the hover underline, so the names stay plain under the pointer.
+function foldMark(v: View): string {
+  return v.worktree || v.branch ? dim(v.isLocationOpen ? '[-]' : '[+]') : ''
 }
 
 // A linked worktree's git folder is <main checkout>/.git/worktrees/<id>, so the main checkout names
@@ -315,14 +319,14 @@ function mainLine(v: View, width: number, hits: Hit[]): string {
   const leftRoom = isRightShown ? width - rightWidth - 2 : width
   const fig = figures(v)
   const figText = fig.before + fig.tokens + fig.after
-  const name = v.folder ? paint(v.folder, { color: C.folder }) : ''
-  const details = v.folder ? hoverable(where(v), 'location', v) : ''
-  const location = name + details
+  const mark = v.folder ? foldMark(v) : ''
+  const name = v.folder ? paint(v.folder, { color: C.folder }) + where(v) + (mark ? ' ' : '') : ''
+  const location = name + hoverable(mark, 'location', v)
   const locationRoom = leftRoom - visibleWidth(figText) - 2 // 2 cells between the location and the context bar
   const shown = location && locationRoom >= 4 ? `${truncateToWidth(location, locationRoom, '…')}  ` : ''
-  const detailsFrom = visibleWidth(name)
-  const detailsTo = Math.min(detailsFrom + visibleWidth(details), visibleWidth(shown) - 2)
-  if (details && detailsTo > detailsFrom) hits.push({ row: 0, from: detailsFrom, to: detailsTo, action: 'location' })
+  const markFrom = visibleWidth(name)
+  const markTo = Math.min(markFrom + visibleWidth(mark), visibleWidth(shown) - 2)
+  if (mark && markTo > markFrom) hits.push({ row: 0, from: markFrom, to: markTo, action: 'location' })
   const left = truncateToWidth(shown + figText, leftRoom, '')
   const tokensFrom = visibleWidth(shown) + visibleWidth(fig.before)
   const tokensTo = tokensFrom + visibleWidth(fig.tokens)
