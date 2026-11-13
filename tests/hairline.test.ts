@@ -58,7 +58,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
     await clock.settle() // the first render outside the desktop app reads the folder and branch
     expect(await ui.find({ type: 'Text', text: '? for shortcuts' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'market-it' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' [+]' })).toBeDefined() // the branch stays folded until a click
     expect(await ui.find({ type: 'Text', text: '  52%' })).toBeDefined()
     if (surface === 'terminal') {
       // 80% of 16 cells: the marker sits in cell 12, past the 8 filled cells.
@@ -109,7 +109,6 @@ test('draws location, context, limits, model and a copyable session id', { optio
   expect(modelSets).toEqual(['sonnet', 'sonnet'])
 
   const narrow = await $.ui.mount({ ...HINT, surface: 'terminal', viewport: { columns: 90, rows: 40 } })
-  expect((await narrow.find({ type: 'Text', text: 'main' }))?.props.wrap).toBe('truncate-end')
   expect(await narrow.find({ type: 'Text', text: ' 104k/200k' })).toBeDefined()
   await narrow.unmount()
 
@@ -139,9 +138,13 @@ test('a worktree shows the repository name, then the worktree and the branch', a
   const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
   await clock.settle()
   expect(await ui.find({ type: 'Text', text: 'hairline' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'feat/x' })).toBeUndefined() // folded to [+] until a click
+  await ui.press({ key: 'hairline-location' })
   expect((await ui.find({ type: 'Text', text: /extra-usage$/ }))?.props.dimColor).toBe(true)
   expect(await ui.find({ type: 'Text', text: ' · ' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'feat/x' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: 'feat/x' }))?.props.wrap).toBe('truncate-end')
+  await ui.press({ key: 'hairline-location' })
+  expect(await ui.find({ type: 'Text', text: ' [+]' })).toBeDefined()
   await ui.unmount()
 })
 

@@ -119,6 +119,11 @@ function setOpen($: EngineInterface, panel: Panel | null): void {
   redraw($)
 }
 const toggle = ($: EngineInterface, panel: Panel) => setOpen($, open === panel ? null : panel)
+let isLocationOpen = false // the worktree and branch, folded to [+] until a click
+function toggleLocation($: EngineInterface): void {
+  isLocationOpen = !isLocationOpen
+  redraw($)
+}
 let modelRow: { value: string; options: readonly string[] } | null = null
 let charsPerToken = 4 // the usual English ratio, until the first response measures it
 
@@ -691,12 +696,19 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           {!isDesktop && (
             <Box flexDirection="row" flexShrink={1} overflow="hidden">
               <Text color={c.folder} wrap="truncate-end">{folder}</Text>
-              {(worktree || branch) && <Text dimColor> (</Text>}
-              {worktree && <Text dimColor wrap="truncate-end">{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${worktree}`}</Text>}
-              {worktree && branch && <Text dimColor> · </Text>}
-              {branch && hasNerdFont && <Text color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>}
-              {branch && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
-              {(worktree || branch) && <Text dimColor>)</Text>}
+              {/* Folded to [+] by default, so a long branch or worktree name leaves the figures their room. */}
+              {(worktree || branch) && (
+                <Button key="hairline-location" label={isLocationOpen ? 'hide worktree and branch' : 'show worktree and branch'} plain onPress={() => toggleLocation($)}>
+                  {isLocationOpen ? [
+                    <Text key="open" dimColor> (</Text>,
+                    worktree && <Text key="worktree" dimColor wrap="truncate-end">{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${worktree}`}</Text>,
+                    worktree && branch && <Text key="dot" dimColor> · </Text>,
+                    branch && hasNerdFont && <Text key="glyph" color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>,
+                    branch && <Text key="branch" color={c.branch} wrap="truncate-end">{branch}</Text>,
+                    <Text key="close" dimColor>)</Text>,
+                  ].filter(Boolean) : <Text dimColor> [+]</Text>}
+                </Button>
+              )}
             </Box>
           )}
           <Box flexDirection="row" flexShrink={0}>

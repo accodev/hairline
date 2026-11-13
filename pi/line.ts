@@ -68,6 +68,7 @@ export type View = {
   isLit: boolean // the dot line draws at full strength while a reply streams or a request waits
   hasNerdFont: boolean
   open: 'tokens' | 'model' | 'effort' | null
+  isLocationOpen: boolean // the worktree and branch, folded to [+] until a click
   hover: string | null // the action of the part under the mouse pointer
   models: { label: string; isCurrent: boolean }[] // the models the picker offers
   efforts: string[] // the thinking levels the model supports
@@ -284,7 +285,10 @@ function rightParts(v: View): { text: string; action?: string }[] {
   return parts.map(p => ({ ...p, text: hoverable(p.text, p.action, v) }))
 }
 
+// Folded to [+] by default, so a long branch or worktree name leaves the figures their room.
 function where(v: View): string {
+  if (!v.worktree && !v.branch) return ''
+  if (!v.isLocationOpen) return dim(' [+]')
   const glyph = (g: string) => (v.hasNerdFont ? `${g} ` : '')
   const parts = [
     v.worktree ? dim(glyph(NERD_GLYPHS.worktree) + v.worktree) : '',
@@ -311,9 +315,14 @@ function mainLine(v: View, width: number, hits: Hit[]): string {
   const leftRoom = isRightShown ? width - rightWidth - 2 : width
   const fig = figures(v)
   const figText = fig.before + fig.tokens + fig.after
-  const location = v.folder ? paint(v.folder, { color: C.folder }) + where(v) : ''
+  const name = v.folder ? paint(v.folder, { color: C.folder }) : ''
+  const details = v.folder ? hoverable(where(v), 'location', v) : ''
+  const location = name + details
   const locationRoom = leftRoom - visibleWidth(figText) - 2 // 2 cells between the location and the context bar
   const shown = location && locationRoom >= 4 ? `${truncateToWidth(location, locationRoom, '…')}  ` : ''
+  const detailsFrom = visibleWidth(name)
+  const detailsTo = Math.min(detailsFrom + visibleWidth(details), visibleWidth(shown) - 2)
+  if (details && detailsTo > detailsFrom) hits.push({ row: 0, from: detailsFrom, to: detailsTo, action: 'location' })
   const left = truncateToWidth(shown + figText, leftRoom, '')
   const tokensFrom = visibleWidth(shown) + visibleWidth(fig.before)
   const tokensTo = tokensFrom + visibleWidth(fig.tokens)
