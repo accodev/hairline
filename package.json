@@ -1,6 +1,6 @@
 {
   "name": "hairline",
-  "version": "0.41.0",
+  "version": "0.41.1",
   "description": "A status line for Claude Code and Pi.",
   "license": "MIT",
   "type": "module",

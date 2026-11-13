@@ -697,16 +697,17 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             <Box flexDirection="row" flexShrink={1} overflow="hidden">
               <Text color={c.folder} wrap="truncate-end">{folder}</Text>
               {/* Folded to [+] by default, so a long branch or worktree name leaves the figures their room. */}
+              {(worktree || branch) && isLocationOpen && <Text dimColor> (</Text>}
+              {worktree && isLocationOpen && <Text dimColor wrap="truncate-end">{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${worktree}`}</Text>}
+              {worktree && branch && isLocationOpen && <Text dimColor> · </Text>}
+              {branch && hasNerdFont && isLocationOpen && <Text color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>}
+              {branch && isLocationOpen && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
+              {(worktree || branch) && isLocationOpen && <Text dimColor>)</Text>}
+              {/* Only the mark is the control: the pointer inverts a Button, and the names stay plain under it. */}
+              {(worktree || branch) && <Text> </Text>}
               {(worktree || branch) && (
                 <Button key="hairline-location" label={isLocationOpen ? 'hide worktree and branch' : 'show worktree and branch'} plain onPress={() => toggleLocation($)}>
-                  {isLocationOpen ? [
-                    <Text key="open" dimColor> (</Text>,
-                    worktree && <Text key="worktree" dimColor wrap="truncate-end">{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${worktree}`}</Text>,
-                    worktree && branch && <Text key="dot" dimColor> · </Text>,
-                    branch && hasNerdFont && <Text key="glyph" color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>,
-                    branch && <Text key="branch" color={c.branch} wrap="truncate-end">{branch}</Text>,
-                    <Text key="close" dimColor>)</Text>,
-                  ].filter(Boolean) : <Text dimColor> [+]</Text>}
+                  <Text dimColor>{isLocationOpen ? '[-]' : '[+]'}</Text>
                 </Button>
               )}
             </Box>
