@@ -154,6 +154,7 @@ export default function hairline(pi: ExtensionAPI) {
   let hasNerdFont = false
   type Open = View['open']
   let open: Open = null
+  let isLocationOpen = false
   let ui: ExtensionContext | null = null // for notify and the model list, from the last session_start
   let hits: Hit[] = []
   let hover: string | null = null
@@ -346,6 +347,7 @@ export default function hairline(pi: ExtensionAPI) {
             isLit: isStreaming || phase === 'sending',
             hasNerdFont,
             open,
+            isLocationOpen,
             hover,
             models: models.map(m => ({ label: modelLabel(m.id), isCurrent: m.id === model })),
             efforts: supportedEfforts(),
@@ -407,6 +409,10 @@ export default function hairline(pi: ExtensionAPI) {
 
   async function act(action: string): Promise<void> {
     if (action === 'tokens' || action === 'model' || action === 'effort') return setOpen(action)
+    if (action === 'location') {
+      isLocationOpen = !isLocationOpen
+      return redraw()
+    }
     if (!ui) return
     if (action === 'id') return copySessionId(ui)
     const [kind, value] = action.split(':') as [string, string]
