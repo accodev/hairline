@@ -160,6 +160,12 @@ test('tool arguments name the file, the command or the pattern', () => {
 test('figures and times keep their short forms', () => {
   assert.equal(human(999_499), '999k')
   assert.equal(human(999_500), '1M')
+  assert.equal(human(999_994_999), '999.99M')
+  assert.equal(human(999_995_000), '1B') // no 1000M
+  assert.equal(human(1_234_000_000), '1.23B')
+  assert.equal(human(100e9), '100B')
+  assert.equal(human(1e12), '1T')
+  assert.equal(human(250e15), '250Q')
   assert.equal(duration(500), '1s')
   assert.equal(duration(3 * 86_400_000 + 2 * 3_600_000), '3d 2h')
   assert.equal(modelLabel('claude-sonnet-5-5'), 'sonnet 5.5')
