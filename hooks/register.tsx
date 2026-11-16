@@ -181,8 +181,19 @@ async function readCompactAt($: EngineInterface): Promise<void> {
   } catch {}
 }
 
+// Largest first. Each cut is where the unit below would round up to 1000: 999,500 prints 1000k
+// with whole thousands, 999.995M prints 1000.00M with 2 decimals.
+const BIG_UNITS = [
+  ['Q', 1e15, 999_995e9],
+  ['T', 1e12, 999_995e6],
+  ['B', 1e9, 999_995e3],
+  ['M', 1e6, 999_500],
+] as const
+
 function human(n: number): string {
-  if (n >= 999_500) return `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, '')}M` // 999,500 rounds to 1M; a lower cut would print 1000k
+  for (const [suffix, size, cut] of BIG_UNITS) {
+    if (n >= cut) return `${(n / size).toFixed(2).replace(/\.?0+$/, '')}${suffix}`
+  }
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`
   return String(n)
 }
