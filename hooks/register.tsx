@@ -701,7 +701,9 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
 
   const line = (
     <Box flexDirection="column">
-      <Box flexDirection="row" justifyContent="space-between" width="100%" overflow="hidden">
+      {/* Wraps whole groups: in a narrow terminal the model and the session id move to a second row
+          instead of each Text wrapping inside its own box. */}
+      <Box flexDirection="row" justifyContent="space-between" width="100%" flexWrap="wrap">
         <Box flexDirection="row" flexShrink={1} overflow="hidden">
           {/* Only the location shrinks, so the figures never wrap to a second row. */}
           {!isDesktop && (
@@ -775,7 +777,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           {extraSpend}
           </Box>
         </Box>
-        <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+        <Box flexDirection="row" flexShrink={0} paddingLeft={2} flexGrow={1} justifyContent="flex-end">
           {model && !isDesktop && (modelRow ? (
             <Button
               key="hairline-model"
