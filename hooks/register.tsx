@@ -602,7 +602,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const windows = RATE_LIMIT_WINDOWS.map(({ kind, label }) => {
     const w = rateLimits.find(l => l.kind === kind)
     return w && (
-      <Box key={kind}>
+      <Box key={kind} flexShrink={0}>
         <Sep />
         <Text dimColor>{`${label} `}</Text>
         <Percent value={w.percentUsed} />
@@ -614,7 +614,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   // Extra usage is billed only after the 5h or 7d window is full, so the spend shows only then.
   const isCapped = RATE_LIMIT_WINDOWS.some(({ kind }) => (rateLimits.find(l => l.kind === kind)?.percentUsed ?? 0) >= 100)
   const extraSpend = extra && isCapped && (
-    <Box key="extra">
+    <Box key="extra" flexShrink={0}>
       <Sep />
       <Text dimColor>extra </Text>
       <Text color={severity(c, extra.pct)}>{amount(extra.used, extra.currency)}</Text>
@@ -623,7 +623,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   )
 
   const Row = ({ label, children }: { label: string; children: RenderChildren }) => (
-    <Box flexDirection="row" paddingLeft={2}>
+    <Box flexDirection="row" paddingLeft={2} flexWrap="wrap">
       <Text dimColor>{label.padEnd(8)}</Text>
       {children}
     </Box>
@@ -701,11 +701,9 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
 
   const line = (
     <Box flexDirection="column">
-      {/* Wraps whole groups: in a narrow terminal the model and the session id move to a second row
-          instead of each Text wrapping inside its own box. */}
-      <Box flexDirection="row" justifyContent="space-between" width="100%" flexWrap="wrap">
-        <Box flexDirection="row" flexShrink={1} overflow="hidden">
-          {/* Only the location shrinks, so the figures never wrap to a second row. */}
+      {/* One wrapping row of whole chunks: a narrow terminal moves a chunk to the next row and never
+          wraps the text inside one. Only the location shrinks, cut with an ellipsis. */}
+      <Box flexDirection="row" width="100%" flexWrap="wrap">
           {!isDesktop && (
             <Box flexDirection="row" flexShrink={1} overflow="hidden">
               <Text color={c.folder} wrap="truncate-end">{folder}</Text>
@@ -732,7 +730,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             ? <Text dimColor>{` ${slot('--%', PCT_WIDTH)}`}</Text>
             : <Text color={rampColor(c, pct, compactAt)}>{` ${slot(`${Math.round(pct)}%`, PCT_WIDTH)}`}</Text>}
           <Text dimColor>{` ${slot(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`}</Text>
-          <Box>
+          </Box>
+          <Box flexShrink={0}>
             <Sep />
             {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
             {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
@@ -750,6 +749,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
               <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
             )}
           </Box>
+          <Box flexShrink={0}>
           <Sep />
           {tokens === 0 ? <Text dimColor>--- tok</Text> : (
             <Box>
@@ -773,10 +773,9 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
               )}
             </Box>
           )}
+          </Box>
           {windows}
           {extraSpend}
-          </Box>
-        </Box>
         <Box flexDirection="row" flexShrink={0} paddingLeft={2} flexGrow={1} justifyContent="flex-end">
           {model && !isDesktop && (modelRow ? (
             <Button
@@ -851,7 +850,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
         </Box>
       )}
       {open === 'effort' && effort && (
-        <Box flexDirection="row" justifyContent="flex-end" width="100%">
+        <Box flexDirection="row" justifyContent="flex-end" width="100%" flexWrap="wrap">
           <Text dimColor>effort </Text>
           {EFFORT_LEVELS.map((level, i) => (
             <Box key={`effort-${level}`}>
