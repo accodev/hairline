@@ -52,7 +52,7 @@ test('draws location, context, speed, tokens, limits, model and session id on on
   assert.equal(rest.length, 0)
   assert.equal(visibleWidth(line!), 160)
   const text = plain(line!)
-  assert.match(text, /^market-it \[\+\] {2}━━━━──┃─ {2}52% 104k\/200k · ○ {5}idle ⠀{6} · 10.7M tok · 5h 38% · 7d 91% resets 3d/)
+  assert.match(text, /^market-it \[\+\] {2}━━━━──┃─ {2}52% 104k\/200k · ○ {5}idle ⠀{6} · 80 in · 400k out · 8.3M read · 2M write · 5h 38% · 7d 91% resets 3d/)
   assert.match(text, /opus 5\.5 high · 02c6e8dd$/)
 })
 
@@ -83,8 +83,8 @@ test('a worktree shows after the repository name, next to the branch', () => {
 test('a narrow footer shortens the location first and keeps every figure', () => {
   const full = plain(drawFooter(view(), 160).lines[0]!)
   const figuresAt = full.indexOf('━')
-  const narrow = plain(drawFooter(view({ folder: 'a-very-long-folder-name-for-a-repository' }), 120).lines[0]!)
-  assert.equal(visibleWidth(narrow), 120)
+  const narrow = plain(drawFooter(view({ folder: 'a-very-long-folder-name-for-a-repository' }), 160).lines[0]!)
+  assert.equal(visibleWidth(narrow), 160)
   assert.match(narrow, /…/)
   assert.match(narrow, /7d 91%/)
   assert.match(narrow, /02c6e8dd$/)
@@ -106,7 +106,7 @@ test('the token count, the model, the thinking level and the session id are clic
     const hit = hits.find(h => h.action === action)!
     return [...text].slice(hit.from, hit.to).join('')
   }
-  assert.equal(at('tokens'), '10.7M tok')
+  assert.equal(at('tokens'), '80 in · 400k out · 8.3M read · 2M write')
   assert.equal(at('model'), 'opus 5.5')
   assert.equal(at('effort'), 'high')
   assert.equal(at('id'), '02c6e8dd')
@@ -146,7 +146,7 @@ test('the speed group keeps one width in every phase', () => {
   assert.equal(tool.bright, 4)
   const toolLine = plain(drawFooter(view({ phase: 'tool', tools: [{ name: 'bash', arg: 'npm test' }], slot: tool.text }), 160).lines[0]!)
   const idleLine = plain(drawFooter(view(), 160).lines[0]!)
-  assert.equal(toolLine.indexOf('10.7M tok'), idleLine.indexOf('10.7M tok'))
+  assert.equal(toolLine.indexOf('80 in'), idleLine.indexOf('80 in'))
 })
 
 test('tool arguments name the file, the command or the pattern', () => {
@@ -245,7 +245,7 @@ test('the extension draws the footer from Pi events', async () => {
   await new Promise(done => setTimeout(done, 1_000)) // the slot scrambles, then settles
   assert.match(line(), /bash npm test/)
   await emit('agent_settled', { aborted: false })
-  assert.match(line(), /○ .* 13k tok · 5h 38%/)
+  assert.match(line(), /○ .* 1k in · 500 out · 9k read · 2k write · 5h 38%/)
 
   const click = async (text: string, row = 0) => {
     const x = [...plain(footer!.render(160)[row]!)].join('').indexOf(text)
@@ -253,11 +253,11 @@ test('the extension draws the footer from Pi events', async () => {
     for (const type of ['press', 'click']) footer!.handleMouse({ type, button: 'left', x, y: row })
     await new Promise(done => setTimeout(done, 10))
   }
-  await click('13k tok')
+  await click('1k in')
   const panel = footer!.render(160).map(plain)
   assert.match(panel[1]!, /cost {4}\$0\.25/)
   assert.match(panel[3]!, /1 turns/)
-  await click('13k tok')
+  await click('1k in')
   assert.equal(footer!.render(160).length, 1)
   await click('opus 5.5')
   await click('sonnet 5.5', 1)

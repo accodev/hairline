@@ -550,6 +550,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const [model, sessionId] = await Promise.all([isDesktop ? '' : $.session.model().catch(() => ''), $.session.id().catch(() => '')])
   const { folder, worktree, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
   const tokens = counted(stats)
+  // Each kind costs a different price, so the line splits them as Pi's footer does.
+  const tokenSplit = [[human(stats.input), 'in'], [human(stats.output), 'out'], [human(stats.read), 'read'], [human(stats.write), 'write']] as const
   const pct = context?.percent ?? null
   const now = Date.now()
 
@@ -755,19 +757,15 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             <Box>
               {isDesktop && Client ? (
                 <Box>
-                <Client key="hairline-tokens" module="./chip.tsx" props={{ text: `${human(tokens)} tok`, inverse: open === 'tokens' }} />
+                <Client key="hairline-tokens" module="./chip.tsx" props={{ text: tokenSplit.map(([n, unit]) => `${n} ${unit}`).join(' · '), inverse: open === 'tokens' }} />
                 </Box>
               ) : (
                 <Box>
-                  <Button
-                    key="hairline-tokens"
-                    label={`${human(tokens)} tok`}
-                    plain
-                    onPress={() => {
-                      toggle($, 'tokens')
-                    }}
-                  >
-                    <Text inverse={open === 'tokens'}>{`${human(tokens)} tok`}</Text>
+                  <Button key="hairline-tokens" label="tokens" plain onPress={() => toggle($, 'tokens')}>
+                    {tokenSplit.flatMap(([n, unit], i) => [
+                      <Text key={`n${i}`} inverse={open === 'tokens'}>{`${i ? ' · ' : ''}${n}`}</Text>,
+                      <Text key={`u${i}`} inverse={open === 'tokens'} dimColor>{` ${unit}`}</Text>,
+                    ])}
                   </Button>
                 </Box>
               )}
