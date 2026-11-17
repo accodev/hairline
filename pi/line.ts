@@ -229,6 +229,17 @@ function limitWindows(v: View): string {
 
 // claude.ai's usage endpoint gives amounts in the currency's minor units: 972 with 2 decimal
 // places is 9.72. Its shape is undocumented, so anything unexpected reads as no extra usage.
+// The endpoint reports the account's 5h and 7d use, other sessions' included. A response header
+// reports it too, but only when this session sends a request.
+export function readUsageLimits(text: string): Limit[] {
+  const body = JSON.parse(text) as Record<string, { utilization?: number | null; resets_at?: string | null } | null | undefined>
+  return RATE_LIMIT_WINDOWS.flatMap(({ kind }) => {
+    const w = body[kind]
+    if (typeof w?.utilization !== 'number') return []
+    return [{ kind, percentUsed: Math.round(w.utilization * 10) / 10, ...(w.resets_at ? { resetsAt: w.resets_at } : {}) }]
+  })
+}
+
 export function readExtraBody(text: string): Extra | null {
   const x = (JSON.parse(text) as { extra_usage?: { is_enabled?: boolean; monthly_limit?: number | null; used_credits?: number | null; utilization?: number | null; currency?: string | null; decimal_places?: number | null } | null }).extra_usage
   if (!x?.is_enabled || typeof x.monthly_limit !== 'number' || typeof x.used_credits !== 'number' || x.monthly_limit <= 0) return null

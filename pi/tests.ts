@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { visibleWidth } from '@earendil-works/pi-tui'
 import { frameText, newSpeed, sendingText, speedDots, tickSpeed } from './anim.ts'
-import { drawFooter, duration, human, modelLabel, readExtraBody, SLOT_WIDTH, slotTarget, TOOL_WIDTH, toolArg, toolSlot, type View, worktreeOf } from './line.ts'
+import { drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, SLOT_WIDTH, slotTarget, TOOL_WIDTH, toolArg, toolSlot, type View, worktreeOf } from './line.ts'
 
 const chr = String.fromCharCode(27)
 const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '')
@@ -65,6 +65,12 @@ test('the month\'s extra usage spend follows the limits, only while it is enable
   assert.match(plain(drawFooter(capped, 180).lines[0]!), /7d 100% resets 3d · extra €\s?9[.,]72\/€\s?100 /)
   assert.equal(readExtraBody(body(false)), null)
   assert.equal(readExtraBody('{"extra_usage":null}'), null)
+  // The same reply carries the account's limits, other sessions' use included.
+  assert.deepEqual(readUsageLimits('{"five_hour":{"utilization":31.04,"resets_at":"2026-11-17T15:00:00Z"},"seven_day":{"utilization":40},"seven_day_opus":null}'), [
+    { kind: 'five_hour', percentUsed: 31, resetsAt: '2026-11-17T15:00:00Z' },
+    { kind: 'seven_day', percentUsed: 40 },
+  ])
+  assert.deepEqual(readUsageLimits('{"five_hour":null}'), [])
 })
 
 test('a worktree shows after the repository name, next to the branch', () => {

@@ -249,6 +249,35 @@ test('hides the extra usage spend while both limits have room', async ($, on) =>
   await ui.unmount()
 })
 
+test('after a reload with no session.start, the line still reads the limits other sessions move, every minute', async ($, on) => {
+  const clock = mock.clock(on)
+  let fiveHour = 25
+  on('session.authorize', () => ({ value: { handle: 'h1', kind: 'bearer' } }))
+  on('http.fetch', ($, e) => {
+    const body = e.url.includes('/api/oauth/usage') ? { five_hour: { utilization: fiveHour }, seven_day: { utilization: 40 } } : { rates: { EUR: 0.9 } }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(body) } }
+  })
+  on('session.cwd', () => ({ value: 'C:/code/hairline' }))
+  on('fs.stat', () => ({ deny: 'ENOENT' }) as never)
+  on('fs.read', () => ({ deny: 'ENOENT' }) as never)
+  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 10 }] } }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.id', () => ({ value: SESSION_ID }))
+  on('config.list', () => ({ value: [] }))
+  on('ui.render', ($, e) => ({ type: 'Text', props: {}, children: ['hint' in e.props ? e.props.hint : ''] }))
+
+  const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
+  await clock.settle()
+  expect(await ui.find({ type: 'Text', text: '25%' })).toBeDefined() // the account's, over this session's 10%
+  expect(await ui.find({ type: 'Text', text: '40%' })).toBeDefined()
+
+  fiveHour = 31 // another session's requests
+  await clock.advance(65_000)
+  await clock.settle()
+  expect(await ui.find({ type: 'Text', text: '31%' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('draws the line in the desktop band above the prompt, under other mods and never over a survey', async ($, on) => {
   mock.clock(on)
   mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: null, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })

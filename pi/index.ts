@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { isScrambling, newSlot, newSpeed, sendingText, setSlotKind, slotText, speedDots, tickSlot, tickSpeed } from './anim.ts'
-import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, slotTarget, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
+import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, slotTarget, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
 const RATE_MIN_WINDOW_MS = 100 // the first chunks' rate, over at least this, so one chunk draws no spike
@@ -28,6 +28,7 @@ const WINDOW_MOVED_MS = 60_000
 // claude.ai's own usage endpoint, undocumented: it alone reports the extra usage spend.
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 const EXTRA_REFRESH_MS = 60_000
+const IDLE_REFRESH_MS = 60_000
 const EXTRA_RETRY_MS = 600_000
 
 type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number }
@@ -168,6 +169,7 @@ export default function hairline(pi: ExtensionAPI) {
   let exchangeTriedAt = 0
   let extra: Extra | null = null
   let extraNextAt = 0
+  let idleReadAt = 0
   const slot = newSlot()
   const speed = newSpeed()
   let stream = { firstAt: 0, lastSample: 0, recent: [] as { at: number; chars: number }[], chars: 0 }
@@ -218,6 +220,29 @@ export default function hairline(pi: ExtensionAPI) {
     } catch {}
   }
 
+  // The store holds the last limits any session saw, so all of them show the same.
+  function setLimits(fresh: Limit[]): void {
+    if (!fresh.length) return
+    const next = [...limits.filter(l => !fresh.some(f => f.kind === l.kind)), ...fresh]
+    if (JSON.stringify(next) === JSON.stringify(limits)) return
+    limits = next
+    trackLimits(fresh)
+    writeStore(s => { s.limits = next })
+    redraw()
+  }
+
+  // Other sessions move the account's limits, and a settings edit changes hairline's own, with no
+  // event here. Pi reads its settings file again on each call.
+  function readIdle(): void {
+    if (phase !== 'idle' || Date.now() - idleReadAt < IDLE_REFRESH_MS) return
+    idleReadAt = Date.now()
+    settings = readSettings((pi.getSettings() as Record<string, unknown>).hairline)
+    const stored = (readStore().limits ?? []).filter(l => !l.resetsAt || Date.parse(l.resetsAt) > Date.now())
+    if (JSON.stringify(stored) !== JSON.stringify(limits)) limits = stored
+    void readExchange()
+    redraw()
+  }
+
   // Only a Claude subscription login (an sk-ant-oat token) has extra usage; an API key has none.
   async function readExtra(): Promise<void> {
     if (!ui || Date.now() < extraNextAt) return
@@ -227,8 +252,10 @@ export default function hairline(pi: ExtensionAPI) {
       if (!key?.includes('sk-ant-oat')) return
       const res = await fetch(USAGE_URL, { headers: { authorization: `Bearer ${key}`, 'anthropic-beta': 'oauth-2025-04-20' }, signal: AbortSignal.timeout(10_000) })
       if (!res.ok) return
-      const next = readExtraBody(await res.text())
+      const text = await res.text()
+      const next = readExtraBody(text)
       extraNextAt = Date.now() + EXTRA_REFRESH_MS
+      setLimits(readUsageLimits(text))
       if (JSON.stringify(next) === JSON.stringify(extra)) return
       extra = next
       redraw()
@@ -468,6 +495,7 @@ export default function hairline(pi: ExtensionAPI) {
     refresh = setInterval(() => {
       void readExchange()
       void readExtra()
+      readIdle()
       if (open === 'tokens') redraw() // the cache countdown changes with no event
     }, REFRESH_MS)
     refresh.unref?.()
@@ -497,14 +525,7 @@ export default function hairline(pi: ExtensionAPI) {
     setPhase('sending')
   })
 
-  pi.on('after_provider_response', async e => {
-    const next = readLimits(e.headers)
-    if (!next.length) return
-    limits = next
-    trackLimits(next)
-    writeStore(s => { s.limits = next })
-    redraw()
-  })
+  pi.on('after_provider_response', async e => setLimits(readLimits(e.headers)))
 
   // Streams carry characters, so the speed divides by the characters per token of the last response.
   pi.on('message_update', async e => {
