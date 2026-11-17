@@ -10,6 +10,7 @@ const WARN_FROM = 60
 const BAD_FROM = 85
 const RESET_SHOWN_FROM = 70
 const LOCATION_REFRESH_MS = 5_000
+const IDLE_REFRESH_MS = 60_000
 const RATE_WINDOW_MS = 1_000
 const RATE_WARMUP_MS = 1_000
 const HINT_REDRAWS_MAX = 30 // Claude Code folds hint-line redraws past 30 a second
@@ -266,6 +267,26 @@ function readExtraBody(text: string): Extra | null {
   return { used, limit, currency: x.currency || 'USD', pct: x.utilization ?? (used / limit) * 100 }
 }
 
+// The endpoint reports the account's 5h and 7d use, other sessions' included. A response header
+// reports it too, but only when this session sends a request.
+function readUsageLimits(text: string): SessionRateLimit[] {
+  const body = JSON.parse(text) as Record<string, { utilization?: number | null; resets_at?: string | null } | null | undefined>
+  return RATE_LIMIT_WINDOWS.flatMap(({ kind }) => {
+    const w = body[kind]
+    if (typeof w?.utilization !== 'number') return []
+    return [{ kind, percentUsed: Math.round(w.utilization * 10) / 10, ...(w.resets_at ? { resetsAt: w.resets_at } : {}) }]
+  })
+}
+
+function setLimits($: EngineInterface, limits: SessionRateLimit[]): void {
+  if (!limits.length) return
+  const next = [...session.rateLimits.filter(l => !limits.some(n => n.kind === l.kind)), ...limits]
+  if (JSON.stringify(next) === JSON.stringify(session.rateLimits)) return
+  session.rateLimits = next
+  trackLimits($, limits)
+  redraw($)
+}
+
 // Only a subscription login holds a bearer credential; an API key has no extra usage to show.
 async function readExtra($: EngineInterface): Promise<void> {
   const now = await $.clock.now() // the test kit's clock, so a test can move to the next reading
@@ -278,6 +299,7 @@ async function readExtra($: EngineInterface): Promise<void> {
     if (!ok) return
     const next = readExtraBody(text)
     extraNextAt = now + EXTRA_REFRESH_MS
+    setLimits($, readUsageLimits(text))
     if (JSON.stringify(next) === JSON.stringify(extra)) return
     extra = next
     redraw($)
@@ -490,8 +512,36 @@ function startTerminal($: EngineInterface): void {
 
 // Also called from the first render: after /reload-plugins, session.start does not fire.
 // The reads run side by side; each redraws when it lands, so the line fills in as they arrive.
+// Started from load: a change to the plugin's options reloads it without a session.start.
+let isTimerStarted = false
+let idleReadAt = 0
+
+function startTimer($: EngineInterface): void {
+  if (isTimerStarted) return
+  isTimerStarted = true
+  $.clock.every(LOCATION_REFRESH_MS, () => {
+    if (isTerminalStarted) void readLocation($)
+    void readExchange($)
+    void readExtra($)
+    void readIdle($)
+    if (open === 'tokens') redraw($) // the cache countdown changes with no event
+  })
+}
+
+// /config, /model and /compact change the model list, the model and the context with no event here.
+async function readIdle($: EngineInterface): Promise<void> {
+  const now = await $.clock.now()
+  if (session.phase !== 'idle' || now - idleReadAt < IDLE_REFRESH_MS) return
+  idleReadAt = now
+  const [usage, rows] = await Promise.all([$.session.usage().catch(() => null), $.config.list().catch(() => null)])
+  if (usage) session.context = usage.context
+  if (rows) readRows(rows)
+  redraw($)
+}
+
 async function load($: EngineInterface): Promise<void> {
   loaded = true
+  startTimer($)
   void $.command.register({ name: 'hairline-fonts', description: 'Look for a Nerd Font again, after installing or removing one' }).catch(() => {})
   void readExchange($)
   void readExtra($)
@@ -885,8 +935,6 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
 
 export const register: Register = (on, options) => {
   settings = readSettings(options)
-  let timerStarted = false
-
   on('command.run', { command: 'hairline-fonts' }, async $ => ({
     text: (await readNerdFont($, true)) ? 'Nerd Font found: the line shows its glyphs.' : 'No Nerd Font found: the line shows no glyphs.',
   }))
@@ -895,15 +943,6 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     session = emptySession()
     void load($) // the session starts without waiting for the line's data
-    if (!timerStarted) {
-      timerStarted = true
-      $.clock.every(LOCATION_REFRESH_MS, () => {
-        if (isTerminalStarted) void readLocation($)
-        void readExchange($)
-        void readExtra($)
-        if (open === 'tokens') redraw($) // the cache countdown changes with no event
-      })
-    }
     return result
   })
 
