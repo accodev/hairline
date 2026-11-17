@@ -273,7 +273,10 @@ function figures(v: View): { before: string; tokens: string; after: string } {
   const count = counted(v.stats)
   return {
     before: `${contextBar(pct, v.compactAt)}${pctText}${dim(` ${size.padStart(CONTEXT_WIDTH)}`)}${SEP}${phaseGlyph(v)}${slot}${dots}${SEP}`,
-    tokens: count === 0 ? dim('--- tok') : hoverable(paint(`${human(count)} tok`, { inverse: v.open === 'tokens' }), 'tokens', v),
+    // Each kind costs a different price, so the line splits them as Pi's own footer does.
+    tokens: count === 0 ? dim('--- tok') : hoverable([
+      [v.stats.input, 'in'], [v.stats.output, 'out'], [v.stats.read, 'read'], [v.stats.write, 'write'],
+    ].map(([n, unit]) => paint(human(n as number), { inverse: v.open === 'tokens' }) + paint(` ${unit}`, { inverse: v.open === 'tokens', dim: true })).join(dim(' · ')), 'tokens', v),
     after: limitWindows(v) + extraSpend(v),
   }
 }
