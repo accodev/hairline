@@ -118,11 +118,11 @@ export function graphText(s: Graph, isLive: boolean, isSweeping: boolean): strin
   return areaLine(s.bars, scale(s.bars, s.top, isLive))
 }
 
-// The breathing track: it fades through the palette slots darkest first and back, one breath
-// each BREATH_MS. No progress can be known, so nothing moves along it.
-const BREATH_MS = 1600
-export const BREATH = [8, 7, 4, 12] as const
-export function breathSlot(ms: number): number {
+// The breathing track: one blue, dim, plain and bright, and back, one breath each BREATH_MS: as
+// near as 16 palette slots come to the mockup's fade of one blue. Nothing moves along it.
+const BREATH_MS = 1900
+export const BREATH = [{ color: 4, dim: true }, { color: 4, dim: false }, { color: 12, dim: false }] as const
+export function breathSlot(ms: number): { color: number; dim: boolean } {
   const phase = (ms % BREATH_MS) / BREATH_MS
   return BREATH[Math.round(((1 - Math.cos(phase * 2 * Math.PI)) / 2) * (BREATH.length - 1))]!
 }

@@ -8,14 +8,15 @@ import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui'
 export const READOUT_WIDTH = 12
 export const TPS_WIDTH = READOUT_WIDTH - ' t/s'.length
 const TPS_MAX = 9999
-const COUNT_WIDTH = 6 // 35.52M
+// The widest count human() prints: 999.99M, 112.46B. At 6 cells, 112.46M wrapped the row.
+export const COUNT_WIDTH = 7
 // The padded token row: 4 counts, each a space and its unit, joined by 3 " / ".
-const TOKEN_SPLIT_WIDTH = 4 * COUNT_WIDTH + ' in out read write'.length + 3 * ' / '.length
+export const TOKEN_SPLIT_WIDTH = 4 * COUNT_WIDTH + ' in out read write'.length + 3 * ' / '.length
 // The graph fills the activity row to the token split's width: the phase glyph and its space, the
 // readout, a space, the graph.
 export const GRAPH_CELLS = TOKEN_SPLIT_WIDTH - 2 - READOUT_WIDTH - 1
 // The first column: the repository over the context, cut with an ellipsis past this width.
-const WORKSPACE_WIDTH = 52
+export const WORKSPACE_WIDTH = 52
 const COLUMN_GAP = 3
 const LIMITS_GAP = 6
 const WARN_FROM = 60
@@ -72,7 +73,7 @@ export type View = {
   tools: Tool[]
   readout: string // the readout as the animation shows it, READOUT_WIDTH or TOOL_WIDTH cells
   graph: string // the graph, GRAPH_CELLS cells
-  breath: number // the sending track's palette slot, from breathSlot
+  breath: { color: number; dim: boolean } // the sending track's step, from breathSlot
   isLit: boolean // the graph draws at full strength while a reply streams or a request waits
   hasNerdFont: boolean
   open: 'ledger' | 'model' | 'effort' | null
@@ -315,7 +316,7 @@ function activityRow(v: View): string {
   const bright = v.phase === 'receiving' ? TPS_WIDTH : v.phase === 'tool' ? toolReadout(v.tools, TOOL_WIDTH).bright : 0
   const readout = `${v.readout.slice(0, bright)}${dim(v.readout.slice(bright))}`
   // A running tool's name fills the graph's cells too.
-  const dots = v.phase === 'tool' ? '' : ` ${paint(v.graph, v.phase === 'sending' ? { color: v.breath } : { color: C.folder, dim: !v.isLit })}`
+  const dots = v.phase === 'tool' ? '' : ` ${paint(v.graph, v.phase === 'sending' ? { color: v.breath.color, dim: v.breath.dim } : { color: C.folder, dim: !v.isLit })}`
   return `${phaseGlyph(v)}${readout}${dots}`
 }
 

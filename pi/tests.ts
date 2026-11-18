@@ -31,7 +31,7 @@ const view = (over: Partial<View> = {}): View => ({
   tools: [],
   readout: readoutTarget('idle', 0, []).text,
   graph: '⠀⠀⠀⠀⠀⠀',
-  breath: 8,
+  breath: { color: 4, dim: true },
   isLit: false,
   hasNerdFont: false,
   open: null,
@@ -195,10 +195,27 @@ test('the graph rises with the stream and settles flat after it', () => {
   assert.equal(graphText(s, false, false), '⣀⣀⣀⣀⣀⣀')
 })
 
+test('at the widest figures every row keeps its columns and the token split stays whole', () => {
+  const name = '1245_the-tills-fiscal-module-runs-as-a-separate-process'
+  // 999.99M, 112.46M, 112.46B and 999.99B: every count at 7 cells, the most human() prints.
+  const v = view({
+    folder: 'market-it', worktree: name, branch: `accodev/${name}`, hasNerdFont: true,
+    stats: { input: 999_990_000, output: 112_460_000, read: 112_460_000_000, write: 999_990_000_000, costUsd: 1 },
+    context: { tokens: 999_000, contextWindow: 1_000_000, percent: 99.9 },
+  })
+  for (const width of [160, 200]) {
+    const lines = drawFooter(v, width).lines.map(plain)
+    for (const line of lines) assert.equal(visibleWidth(line), width)
+    assert.match(lines[1]!, / 999\.99M in \/ 112\.46M out \/ 112\.46B read \/ 999\.99B write /)
+    // The token split starts where the activity starts, whatever the names before them.
+    assert.equal(lines[1]!.indexOf('999.99M in'), 55)
+  }
+})
+
 test('sending breathes the whole track; a stream fills the graph from the bottom', () => {
-  // One breath over 1600 ms: the darkest slot at its start, the brightest halfway.
-  assert.equal(breathSlot(0), 8)
-  assert.equal(breathSlot(800), 12)
+  // One breath over 1900 ms: dim blue at its start, bright blue halfway.
+  assert.deepEqual(breathSlot(0), { color: 4, dim: true })
+  assert.deepEqual(breathSlot(950), { color: 12, dim: false })
   const g = newGraph(4)
   assert.equal(graphText(g, false, true), '────')
   for (let i = 0; i < 40; i++) tickGraph(g, 33, 100, false)

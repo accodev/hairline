@@ -27,10 +27,11 @@ export function areaLine(samples: number[], at: (v: number) => number): string {
   return Array.from({ length: samples.length / 2 }, (_, cell) => AREA[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (AREA.length - 1))]!).join('')
 }
 
-// The breathing track while a request is out: the whole track fades through `breath`'s colors and
+// The breathing track while a request is out: the whole track fades through `breath`'s steps and
 // back, one breath each BREATH_MS. No progress can be known, so nothing moves along it.
-const BREATH_MS = 1600
-export function breathColor(ms: number, breath: readonly string[]): string {
+const BREATH_MS = 1900
+export type BreathStep = { color: string; dim: boolean }
+export function breathColor(ms: number, breath: readonly BreathStep[]): BreathStep {
   const phase = (ms % BREATH_MS) / BREATH_MS
   return breath[Math.round(((1 - Math.cos(phase * 2 * Math.PI)) / 2) * (breath.length - 1))]!
 }
@@ -59,7 +60,7 @@ function blocks(samples: number[], at: (v: number) => number): string[] {
 
 // sweep: a request is out and nothing has come back. No progress of it can be known, so a bump
 // runs across the line, one pass each SWEEP_MS, to show that the wait goes on.
-export type GraphProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number; breath?: string[] }
+export type GraphProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number; breath?: BreathStep[] }
 type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean; sweepMs?: number }
 
 const SWEEP_MS = 1200
@@ -130,7 +131,7 @@ const Graph: ClientModule<GraphProps, Anim> = (props, surface) => {
       </Box>
     )
     : props.sweep && props.breath
-      ? <Text color={breathColor(s.sweepMs ?? 0, props.breath)}>{'─'.repeat(length / 2)}</Text>
+      ? (() => { const step = breathColor(s.sweepMs ?? 0, props.breath); return <Text color={step.color} dimColor={step.dim}>{'─'.repeat(length / 2)}</Text> })()
       : <Text color={props.color} dimColor={!isLit}>{areaLine(samples, at)}</Text>
 }
 
