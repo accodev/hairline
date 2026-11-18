@@ -62,13 +62,21 @@ function lay(node, width) {
   let lines
   if (p.flexDirection === 'column') {
     lines = kids.flat()
+    // The model column right-aligns its two rows.
+    if (p.alignItems === 'flex-end') {
+      const w = widthOf(lines)
+      lines = lines.map(line => [...Array.from({ length: w - line.length }, () => blank({})), ...line])
+    }
   } else {
     const widths = kids.map(widthOf)
     const height = Math.max(1, ...kids.map(k => k.length))
     const free = Math.max(0, inner - widths.reduce((a, b) => a + b, 0))
     const isFull = p.width === '100%'
-    const lead = isFull && p.justifyContent === 'flex-end' ? free : 0
-    const gap = isFull && p.justifyContent === 'space-between' && kids.length > 1 ? free / (kids.length - 1) : 0
+    // A flexGrow child takes the free space: the spacer that pushes the model column right.
+    const growAt = isFull ? (node.children ?? []).findIndex(child => typeof child !== 'string' && child.props?.flexGrow) : -1
+    if (growAt >= 0) widths[growAt] += free
+    const lead = isFull && growAt < 0 && p.justifyContent === 'flex-end' ? free : 0
+    const gap = isFull && growAt < 0 && p.justifyContent === 'space-between' && kids.length > 1 ? free / (kids.length - 1) : 0
     lines = Array.from({ length: height }, (_, row) => {
       const cells = Array.from({ length: lead }, () => blank({}))
       kids.forEach((kid, i) => {
@@ -81,6 +89,11 @@ function lay(node, width) {
   }
   if (p.width === '100%' || typeof p.width === 'number') lines = lines.map(line => line.slice(0, inner))
   const pad = n => Array.from({ length: n }, () => blank({}))
+  // The gap after each column.
+  if (p.marginRight) {
+    const w = widthOf(lines)
+    lines = lines.map(line => [...line, ...pad(w - line.length + p.marginRight)])
+  }
   return lines.map(line => [...pad(padLeft), ...line])
 }
 
