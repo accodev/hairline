@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { isScrambling, newSlot, newSpeed, sendingText, setSlotKind, slotText, speedDots, tickSlot, tickSpeed } from './anim.ts'
-import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, slotTarget, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
+import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, slotTarget, SPEED_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
 const RATE_MIN_WINDOW_MS = 100 // the first chunks' rate, over at least this, so one chunk draws no spike
@@ -155,7 +155,6 @@ export default function hairline(pi: ExtensionAPI) {
   let hasNerdFont = false
   type Open = View['open']
   let open: Open = null
-  let isLocationOpen = false
   let ui: ExtensionContext | null = null // for notify and the model list, from the last session_start
   let hits: Hit[] = []
   let hover: string | null = null
@@ -171,7 +170,7 @@ export default function hairline(pi: ExtensionAPI) {
   let extraNextAt = 0
   let idleReadAt = 0
   const slot = newSlot()
-  const speed = newSpeed()
+  const speed = newSpeed(SPEED_CELLS)
   let stream = { firstAt: 0, lastSample: 0, recent: [] as { at: number; chars: number }[], chars: 0 }
 
   const redraw = () => requestRender?.()
@@ -374,7 +373,6 @@ export default function hairline(pi: ExtensionAPI) {
             isLit: isStreaming || phase === 'sending',
             hasNerdFont,
             open,
-            isLocationOpen,
             hover,
             models: models.map(m => ({ label: modelLabel(m.id), isCurrent: m.id === model })),
             efforts: supportedEfforts(),
@@ -436,10 +434,6 @@ export default function hairline(pi: ExtensionAPI) {
 
   async function act(action: string): Promise<void> {
     if (action === 'tokens' || action === 'model' || action === 'effort') return setOpen(action)
-    if (action === 'location') {
-      isLocationOpen = !isLocationOpen
-      return redraw()
-    }
     if (!ui) return
     if (action === 'id') return copySessionId(ui)
     const [kind, value] = action.split(':') as [string, string]

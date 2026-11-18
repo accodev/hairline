@@ -3,15 +3,23 @@ import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui'
 // The footer as text. Pi hands every line to the terminal as is, so the colors are SGR codes for
 // the 16 palette slots: each person's terminal scheme picks the shades, as in Claude Code.
 
-export const BAR_CELLS = 8
 // Fixed widths, so a changing figure never moves the ones after it on the line.
-const PCT_WIDTH = 4 // 100%
-const CONTEXT_WIDTH = 7 // 999k/1M
-export const TPS_WIDTH = 4
+// The terminal's columns give the phase words and the speed 12 cells, as in Claude Code.
+export const SLOT_WIDTH = 12
+export const TPS_WIDTH = SLOT_WIDTH - ' t/s'.length
 const TPS_MAX = 9999
+const COUNT_WIDTH = 6 // 35.52M
+// The padded token row: 4 counts, each a space and its unit, joined by 3 " / ".
+const TOKEN_ROW_WIDTH = 4 * COUNT_WIDTH + ' in out read write'.length + 3 * ' / '.length
+// The graph fills the speed row to the token row's width: the phase glyph and its space, the
+// slot, a space, the graph.
+export const SPEED_CELLS = TOKEN_ROW_WIDTH - 2 - SLOT_WIDTH - 1
+// The first column: the repository over the context, cut with an ellipsis past this width.
+const PLACE_WIDTH = 52
+const COLUMN_GAP = 3
+const LIMITS_GAP = 6
 const WARN_FROM = 60
 const BAD_FROM = 85
-const RESET_SHOWN_FROM = 70
 const BURN_MIN_HOURS = 0.1
 export const HOUR_MS = 3_600_000
 // Nerd Font glyphs are private-use code points that any other font draws as a box.
@@ -19,9 +27,8 @@ export const HOUR_MS = 3_600_000
 export const NERD_GLYPHS = { reset: '\uf017', worktree: '\uf07b', branch: '\ue725' } as const // nf-fa-clock_o, nf-fa-folder, nf-dev-git_branch
 const IDLE_GLYPH = '\u25cb' // a white circle, which every terminal font draws
 export const PHASE_WORDS = { idle: 'idle', sending: 'sending', tool: 'running' } as const
-export const SLOT_WIDTH = TPS_WIDTH + ' t/s'.length
-// The slot, its gap and the 6 cells of the dot line: a running tool's name and argument fill them all.
-export const TOOL_WIDTH = SLOT_WIDTH + 1 + 6
+// The slot, its gap and the dot line: a running tool's name and argument fill them all.
+export const TOOL_WIDTH = SLOT_WIDTH + 1 + SPEED_CELLS
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const SPINNER_MS = 80
 export const RATE_LIMIT_WINDOWS = [
@@ -68,7 +75,6 @@ export type View = {
   isLit: boolean // the dot line draws at full strength while a reply streams or a request waits
   hasNerdFont: boolean
   open: 'tokens' | 'model' | 'effort' | null
-  isLocationOpen: boolean // the worktree and branch, folded to [+] until a click
   hover: string | null // the action of the part under the mouse pointer
   models: { label: string; isCurrent: boolean }[] // the models the picker offers
   efforts: string[] // the thinking levels the model supports
@@ -191,17 +197,6 @@ export function slotTarget(phase: Phase, tps: number, tools: Tool[]): { text: st
   return { text: PHASE_WORDS[phase].padStart(SLOT_WIDTH), bright: 0 }
 }
 
-export function contextBar(pct: number | null, compactAt: number | null): string {
-  const filled = pct === null ? 0 : Math.round((Math.min(pct, 100) / 100) * BAR_CELLS)
-  // In the last cell the marker would only repeat the bar's own end, so it hides there.
-  const compactCell = compactAt === null ? BAR_CELLS : Math.floor((compactAt / 100) * BAR_CELLS)
-  const markerCell = compactCell < BAR_CELLS - 1 ? compactCell : -1
-  return Array.from({ length: BAR_CELLS }, (_, i) => {
-    const color = rampColor(((i + 0.5) / BAR_CELLS) * 100, compactAt)
-    if (i === markerCell) return paint('┃', { dim: true, color: i < filled ? color : C.marker })
-    return i < filled ? paint('━', { color }) : paint('─', { dim: true, color })
-  }).join('')
-}
 
 function phaseGlyph(v: View): string {
   switch (v.phase) {
@@ -216,16 +211,6 @@ function percent(value: number): string {
   return paint(`${Math.round(value)}%`, { color: severity(value) })
 }
 
-function limitWindows(v: View): string {
-  return RATE_LIMIT_WINDOWS.map(({ kind, label }) => {
-    const w = v.limits.find(l => l.kind === kind)
-    if (!w) return ''
-    const reset = w.percentUsed >= RESET_SHOWN_FROM && w.resetsAt
-      ? dim(` ${v.hasNerdFont ? `${NERD_GLYPHS.reset} ` : 'resets '}${duration(Date.parse(w.resetsAt) - v.now)}`)
-      : ''
-    return `${SEP}${dim(`${label} `)}${percent(w.percentUsed)}${reset}`
-  }).join('')
-}
 
 // claude.ai's usage endpoint gives amounts in the currency's minor units: 972 with 2 decimal
 // places is 9.72. Its shape is undocumented, so anything unexpected reads as no extra usage.
@@ -269,63 +254,6 @@ function hoverable(text: string, action: string | undefined, v: View): string {
   return action && action === v.hover ? `\x1b[4m${text}\x1b[0m` : text
 }
 
-// Everything after the location: the context, the speed group, the tokens and the limits. The
-// token count is its own part, so a click on it can be found.
-function figures(v: View): { before: string; tokens: string; after: string } {
-  const pct = v.context?.percent ?? null
-  const pctText = pct === null
-    ? dim(` ${'--%'.padStart(PCT_WIDTH)}`)
-    : paint(` ${`${Math.round(pct)}%`.padStart(PCT_WIDTH)}`, { color: rampColor(pct, v.compactAt) })
-  const size = v.context?.tokens == null ? '---/---' : `${human(v.context.tokens)}/${human(v.context.contextWindow)}`
-  const bright = v.phase === 'receiving' ? TPS_WIDTH : v.phase === 'tool' ? toolSlot(v.tools, TOOL_WIDTH).bright : 0
-  const slot = `${v.slot.slice(0, bright)}${dim(v.slot.slice(bright))}`
-  // A running tool's name fills the dot line's cells too.
-  const dots = v.phase === 'tool' ? '' : ` ${paint(v.dots, { color: C.folder, dim: !v.isLit })}`
-  const count = counted(v.stats)
-  return {
-    before: `${contextBar(pct, v.compactAt)}${pctText}${dim(` ${size.padStart(CONTEXT_WIDTH)}`)}${SEP}${phaseGlyph(v)}${slot}${dots}${SEP}`,
-    // Each kind costs a different price, so the line splits them as Pi's own footer does.
-    tokens: count === 0 ? dim('--- tok') : hoverable([
-      [v.stats.input, 'in'], [v.stats.output, 'out'], [v.stats.read, 'read'], [v.stats.write, 'write'],
-    ].map(([n, unit]) => paint(human(n as number), { inverse: v.open === 'tokens' }) + paint(` ${unit}`, { inverse: v.open === 'tokens', dim: true })).join(dim(' · ')), 'tokens', v),
-    after: limitWindows(v) + extraSpend(v),
-  }
-}
-
-// The model, the thinking level and the session ID, each with the action a click on it runs.
-function rightParts(v: View): { text: string; action?: string }[] {
-  const parts: { text: string; action?: string }[] = []
-  if (v.model) {
-    parts.push({ text: paint(modelLabel(v.model), { inverse: v.open === 'model' }), action: v.models.length > 1 ? 'model' : undefined })
-    if (v.effort) {
-      const style: Style = EFFORT_COLORS[v.effort] === undefined ? { dim: true } : { color: EFFORT_COLORS[v.effort] }
-      parts.push({ text: ' ' }, { text: paint(v.effort, { ...style, inverse: v.open === 'effort' }), action: v.efforts.length > 1 ? 'effort' : undefined })
-    }
-  }
-  if (v.sessionId) {
-    if (v.model) parts.push({ text: SEP })
-    // Dim only: slot 8 with dim on top vanished on dark terminal schemes.
-    parts.push({ text: dim(v.sessionId.slice(0, 8)), action: 'id' })
-  }
-  return parts.map(p => ({ ...p, text: hoverable(p.text, p.action, v) }))
-}
-
-// Folded to [+] by default, so a long branch or worktree name leaves the figures their room.
-function where(v: View): string {
-  if (!v.worktree && !v.branch || !v.isLocationOpen) return ''
-  const glyph = (g: string) => (v.hasNerdFont ? `${g} ` : '')
-  const parts = [
-    v.worktree ? dim(glyph(NERD_GLYPHS.worktree) + v.worktree) : '',
-    v.branch ? paint(glyph(NERD_GLYPHS.branch) + v.branch, { color: C.branch }) : '',
-  ].filter(Boolean)
-  return `${dim(' (')}${parts.join(dim(' · '))}${dim(')')}`
-}
-
-// Only the mark takes the click and the hover underline, so the names stay plain under the pointer.
-function foldMark(v: View): string {
-  return v.worktree || v.branch ? dim(v.isLocationOpen ? '[-]' : '[+]') : ''
-}
-
 // A linked worktree's git folder is <main checkout>/.git/worktrees/<id>, so the main checkout names
 // the repository. A submodule's is .git/modules/<name>, and it stays a repository of its own.
 export function worktreeOf(gitDir: string, top: string): { name: string; worktree: string | null } {
@@ -334,36 +262,141 @@ export function worktreeOf(gitDir: string, top: string): { name: string; worktre
   return main ? { name: base(main), worktree: base(top) } : { name: base(top), worktree: null }
 }
 
-// As in Claude Code, the right side keeps its cells: the location shrinks first, then the figures
-// lose cells from their end.
-function mainLine(v: View, width: number, hits: Hit[]): string {
-  const parts = rightParts(v)
-  const right = parts.map(p => p.text).join('')
-  const rightWidth = visibleWidth(right)
-  const isRightShown = right !== '' && width - rightWidth - 2 >= 20
-  const leftRoom = isRightShown ? width - rightWidth - 2 : width
-  const fig = figures(v)
-  const figText = fig.before + fig.tokens + fig.after
-  const mark = v.folder ? foldMark(v) : ''
-  const name = v.folder ? paint(v.folder, { color: C.folder }) + where(v) + (mark ? ' ' : '') : ''
-  const location = name + hoverable(mark, 'location', v)
-  const locationRoom = leftRoom - visibleWidth(figText) - 2 // 2 cells between the location and the context bar
-  const shown = location && locationRoom >= 4 ? `${truncateToWidth(location, locationRoom, '…')}  ` : ''
-  const markFrom = visibleWidth(name)
-  const markTo = Math.min(markFrom + visibleWidth(mark), visibleWidth(shown) - 2)
-  if (mark && markTo > markFrom) hits.push({ row: 0, from: markFrom, to: markTo, action: 'location' })
-  const left = truncateToWidth(shown + figText, leftRoom, '')
-  const tokensFrom = visibleWidth(shown) + visibleWidth(fig.before)
-  const tokensTo = tokensFrom + visibleWidth(fig.tokens)
-  if (counted(v.stats) > 0 && tokensTo <= leftRoom) hits.push({ row: 0, from: tokensFrom, to: tokensTo, action: 'tokens' })
-  if (!isRightShown) return left
-  let at = width - rightWidth
-  for (const p of parts) {
-    const w = visibleWidth(p.text)
-    if (p.action) hits.push({ row: 0, from: at, to: at + w, action: p.action })
-    at += w
+// Exactly `width` cells: cut with an ellipsis, or padded.
+function fit(text: string, width: number): string {
+  const cut = truncateToWidth(text, width, '…')
+  return cut + ' '.repeat(Math.max(0, width - visibleWidth(cut)))
+}
+
+// The worktree and the branch cut to fit the column with the repository, the parentheses, the
+// separator and the glyphs. The longer name loses a cell first, so both stay readable.
+export function cutPlace(folder: string, worktree: string | null, branch: string | null, hasGlyphs: boolean, width: number): { worktree: string; branch: string } {
+  const glyph = hasGlyphs ? 2 : 0
+  const fixed = folder.length + (worktree || branch ? 3 : 0) + (worktree && branch ? 3 : 0) + (worktree ? glyph : 0) + (branch ? glyph : 0)
+  const room = Math.max(0, width - fixed)
+  let w = worktree?.length ?? 0
+  let b = branch?.length ?? 0
+  while (w + b > room) {
+    if (w >= b && w > 1) w--
+    else if (b > 1) b--
+    else break
   }
-  return `${left}${' '.repeat(width - visibleWidth(left) - rightWidth)}${right}`
+  const cut = (name: string | null, n: number) => (!name ? '' : name.length <= n ? name : `${name.slice(0, Math.max(0, n - 1))}…`)
+  return { worktree: cut(worktree, w), branch: cut(branch, b) }
+}
+
+// The repository, then the worktree and the branch in parentheses: two rows leave them room.
+function place(v: View, width: number): string {
+  if (!v.folder) return ''
+  const glyph = (g: string) => (v.hasNerdFont ? `${g} ` : '')
+  const cut = cutPlace(v.folder, v.worktree, v.branch, v.hasNerdFont, width)
+  const parts = [
+    v.worktree ? dim(glyph(NERD_GLYPHS.worktree) + cut.worktree) : '',
+    v.branch ? paint(glyph(NERD_GLYPHS.branch) + cut.branch, { color: C.branch }) : '',
+  ].filter(Boolean)
+  return paint(v.folder, { color: C.folder }) + (parts.length ? `${dim(' (')}${parts.join(dim(' · '))}${dim(')')}` : '')
+}
+
+function contextFigures(v: View): string {
+  const pct = v.context?.percent ?? null
+  const size = v.context?.tokens == null ? '---/---' : `${human(v.context.tokens)}/${human(v.context.contextWindow)}`
+  return [
+    pct === null ? dim('--%') : paint(`${Math.round(pct)}%`, { color: rampColor(pct, v.compactAt) }),
+    dim(` ${size}`),
+    v.compactAt === null ? '' : dim(` · compacts at ${Math.round(v.compactAt)}%`),
+  ].join('')
+}
+
+// Idle, the slot stays empty: a dim glyph, a word and a flat graph only said so.
+function speedRow(v: View): string {
+  if (v.phase === 'idle') return ''
+  const bright = v.phase === 'receiving' ? TPS_WIDTH : v.phase === 'tool' ? toolSlot(v.tools, TOOL_WIDTH).bright : 0
+  const slot = `${v.slot.slice(0, bright)}${dim(v.slot.slice(bright))}`
+  // A running tool's name fills the dot line's cells too.
+  const dots = v.phase === 'tool' ? '' : ` ${paint(v.dots, { color: C.folder, dim: !v.isLit })}`
+  return `${phaseGlyph(v)}${slot}${dots}`
+}
+
+// Each kind costs a different price, so the line splits them as Pi's own footer does. Each count
+// is padded to the widest human() gives, so a count that grows a digit moves none after it.
+function tokenRow(v: View): string {
+  if (counted(v.stats) === 0) return dim('--- tok')
+  const inverse = v.open === 'tokens'
+  return hoverable([
+    [v.stats.input, 'in'], [v.stats.output, 'out'], [v.stats.read, 'read'], [v.stats.write, 'write'],
+  ].map(([n, unit]) => paint(human(n as number).padStart(COUNT_WIDTH), { inverse }) + paint(` ${unit}`, { inverse, dim: true })).join(paint(' / ', { inverse, dim: true })), 'tokens', v)
+}
+
+function limitCell(v: View, kind: string, label: string): string {
+  const w = v.limits.find(l => l.kind === kind)
+  if (!w) return ''
+  const reset = w.resetsAt ? dim(` ${v.hasNerdFont ? `${NERD_GLYPHS.reset} ` : ''}${duration(Date.parse(w.resetsAt) - v.now)}`) : ''
+  return `${dim(`${label} `)}${percent(w.percentUsed)}${reset}`
+}
+
+// The model and the thinking level on the first row, the session ID on the second, each part with
+// the action a click on it runs.
+function modelParts(v: View): { text: string; action?: string }[][] {
+  const top: { text: string; action?: string }[] = []
+  if (v.model) {
+    top.push({ text: paint(modelLabel(v.model), { inverse: v.open === 'model' }), action: v.models.length > 1 ? 'model' : undefined })
+    if (v.effort) {
+      const style: Style = EFFORT_COLORS[v.effort] === undefined ? { dim: true } : { color: EFFORT_COLORS[v.effort] }
+      top.push({ text: ' ' }, { text: paint(v.effort, { ...style, inverse: v.open === 'effort' }), action: v.efforts.length > 1 ? 'effort' : undefined })
+    }
+  }
+  // Dim only: slot 8 with dim on top vanished on dark terminal schemes.
+  const bottom = v.sessionId ? [{ text: dim(v.sessionId.slice(0, 8)), action: 'id' }] : []
+  return [top, bottom].map(parts => parts.map(p => ({ ...p, text: hoverable(p.text, p.action, v) })))
+}
+
+// The context bar across the whole footer: one cell per column is the finest step it can take.
+function rule(pct: number | null, compactAt: number | null, cells: number): string {
+  const filled = pct === null ? 0 : Math.round((Math.min(pct, 100) / 100) * cells)
+  // In the last cell the marker would only repeat the rule's own end, so it hides there.
+  const marker = compactAt === null ? -1 : Math.floor((compactAt / 100) * cells)
+  let out = ''
+  for (let i = 0; i < cells; i++) {
+    const color = rampColor(((i + 0.5) / cells) * 100, compactAt)
+    // The track is dim text: slot 8 vanishes on translucent and dark backgrounds.
+    if (i === marker && i < cells - 1) out += paint('┃', i < filled ? { color } : { color: C.marker })
+    else out += i < filled ? paint('━', { color }) : dim('─')
+  }
+  return out
+}
+
+// Two rows of four columns, as in Claude Code: the place over the context, the speed over the
+// tokens, 5h over 7d, the model over the session ID. The first two columns have fixed widths, so
+// nothing moves as figures change; the limits and the model sit right. Then the rule.
+function mainRows(v: View, width: number, hits: Hit[]): string[] {
+  const limits = [limitCell(v, 'five_hour', '5h'), limitCell(v, 'seven_day', '7d') + extraSpend(v)]
+  const limitsWidth = Math.max(...limits.map(visibleWidth))
+  const right = modelParts(v)
+  const rightTexts = right.map(parts => parts.map(p => p.text).join(''))
+  const rightWidth = Math.max(...rightTexts.map(visibleWidth))
+  const rest = COLUMN_GAP + TOKEN_ROW_WIDTH + 2 + limitsWidth + (limitsWidth ? LIMITS_GAP : 0) + rightWidth
+  // A narrow footer cuts the place first, as Claude Code's first column shrinks first.
+  const placeWidth = Math.max(12, Math.min(PLACE_WIDTH, width - rest))
+  const left = [place(v, placeWidth), contextFigures(v)].map(t => fit(t, placeWidth))
+  const middle = [speedRow(v), tokenRow(v)].map(t => fit(t, TOKEN_ROW_WIDTH))
+  const leftWidth = placeWidth + COLUMN_GAP + TOKEN_ROW_WIDTH
+  const free = Math.max(2, width - leftWidth - limitsWidth - (limitsWidth ? LIMITS_GAP : 0) - rightWidth)
+  if (counted(v.stats) > 0) hits.push({ row: 1, from: placeWidth + COLUMN_GAP, to: placeWidth + COLUMN_GAP + visibleWidth(tokenRow(v)), action: 'tokens' })
+  const rows = [0, 1].map(r => {
+    const rightPad = rightWidth - visibleWidth(rightTexts[r]!)
+    let at = leftWidth + free + limitsWidth + (limitsWidth ? LIMITS_GAP : 0) + rightPad
+    for (const p of right[r]!) {
+      const w = visibleWidth(p.text)
+      if (p.action && at + w <= width) hits.push({ row: r, from: at, to: at + w, action: p.action })
+      at += w
+    }
+    return truncateToWidth([
+      left[r], ' '.repeat(COLUMN_GAP), middle[r], ' '.repeat(free),
+      limitsWidth ? fit(limits[r]!, limitsWidth) + ' '.repeat(LIMITS_GAP) : '',
+      ' '.repeat(rightPad), rightTexts[r],
+    ].join(''), width, '')
+  })
+  return [...rows, rule(v.context?.percent ?? null, v.compactAt, width)]
 }
 
 // A picker's options, right-aligned under the line as Claude Code shows them, wrapped to the width.
@@ -438,7 +471,7 @@ function panel(v: View): string[] {
 // The lines, and where each clickable part sits: Pi routes mouse events to the footer in fullscreen mode.
 export function drawFooter(v: View, width: number): { lines: string[]; hits: Hit[] } {
   const hits: Hit[] = []
-  const lines = [mainLine(v, width, hits)]
+  const lines = mainRows(v, width, hits)
   if (v.open === 'model') {
     lines.push(...pickerRows('model', v.models.map((m, i) => ({
       text: paint(m.label, m.isCurrent ? { bold: true, underline: true } : { dim: true }),
