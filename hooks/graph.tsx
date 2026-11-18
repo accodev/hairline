@@ -139,9 +139,10 @@ const Graph: ClientModule<GraphProps, Anim> = (props, surface) => {
         const [before, head, after] = scanCells(s.sweepMs ?? 0, length / 2)
         return (
           <Box>
-            <Text dimColor>{'─'.repeat(before)}</Text>
-            <Text color={props.color}>{'━'.repeat(head)}</Text>
-            <Text dimColor>{'─'.repeat(after)}</Text>
+            {/* The head is off the track at a pass's start and end: an empty Text drops the whole line. */}
+            {before > 0 && <Text dimColor>{'─'.repeat(before)}</Text>}
+            {head > 0 && <Text color={props.color}>{'━'.repeat(head)}</Text>}
+            {after > 0 && <Text dimColor>{'─'.repeat(after)}</Text>}
           </Box>
         )
       })()
