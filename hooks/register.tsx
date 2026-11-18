@@ -867,7 +867,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       </Box>
     )
   }
-  const ruleCells = Math.max(BAR_CELLS, e.viewport?.columns ?? 0)
+  // Claude Code indents the hint line 2 columns on each side: a rule of the full width wraps.
+  const ruleCells = Math.max(BAR_CELLS, (e.viewport?.columns ?? 0) - 4)
   const ruleFilled = pct === null ? 0 : Math.round((Math.min(pct, 100) / 100) * ruleCells)
   // In the last cell the marker would only repeat the rule's own end, so it hides there.
   const ruleMarker = compactAt === null ? -1 : Math.min(ruleCells, Math.floor((compactAt / 100) * ruleCells))
@@ -878,7 +879,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     const ramp = rampColor(c, ((i + 0.5) / ruleCells) * 100, compactAt)
     const isMarker = i === ruleMarker && i < ruleCells - 1
     const glyph = isMarker ? '┃' : isFilled ? '━' : '─'
-    const color = isMarker ? (isFilled ? ramp : c.marker) : isFilled ? ramp : c.track
+    // The track is dim text: slot 8 vanishes on translucent and dark backgrounds.
+    const color = isMarker ? (isFilled ? ramp : c.marker) : isFilled ? ramp : ''
     const last = ruleRuns[ruleRuns.length - 1]
     if (last && last.glyph === glyph && last.color === color) last.text += glyph
     else ruleRuns.push({ glyph, color, text: glyph })
@@ -916,8 +918,10 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           {sessionIdControl || <Text> </Text>}
         </Box>
       </Box>
-      <Box width="100%" overflow="hidden">
-        {ruleRuns.map((run, i) => <Text key={`rule-${i}`} color={run.color}>{run.text}</Text>)}
+      <Box width="100%" overflow="hidden" flexWrap="nowrap">
+        {ruleRuns.map((run, i) => run.color
+          ? <Text key={`rule-${i}`} color={run.color} wrap="truncate-end">{run.text}</Text>
+          : <Text key={`rule-${i}`} dimColor wrap="truncate-end">{run.text}</Text>)}
       </Box>
     </Box>
   )
