@@ -66,7 +66,7 @@ function scale(samples: number[], top: number, isLive: boolean): (v: number) => 
 export function dotLine(samples: number[], at: (v: number) => number): string {
   const rows = samples.map(v => 3 - Math.round(at(v) * 3))
   let line = ''
-  for (let cell = 0; cell < CELLS; cell++) {
+  for (let cell = 0; cell < samples.length / 2; cell++) {
     let bits = 0
     for (const side of [0, 1] as const) {
       const i = cell * 2 + side
@@ -81,14 +81,15 @@ export function dotLine(samples: number[], at: (v: number) => number): string {
 
 // The samples of the bump at `ms` into the sweep; it starts and ends outside the line. A sweep
 // runs while a request is out and nothing has come back, so the wait shows as motion.
-export function sweepBars(ms: number): number[] {
-  const at = ((ms % SWEEP_MS) / SWEEP_MS) * (SAMPLES + 2 * SWEEP_HALF_WIDTH) - SWEEP_HALF_WIDTH
-  return Array.from({ length: SAMPLES }, (_, i) => Math.max(0, 1 - Math.abs(i - at) / SWEEP_HALF_WIDTH))
+export function sweepBars(ms: number, samples = SAMPLES): number[] {
+  const at = ((ms % SWEEP_MS) / SWEEP_MS) * (samples + 2 * SWEEP_HALF_WIDTH) - SWEEP_HALF_WIDTH
+  return Array.from({ length: samples }, (_, i) => Math.max(0, 1 - Math.abs(i - at) / SWEEP_HALF_WIDTH))
 }
 
 export type Speed = { shown: number; bars: number[]; top: number; sinceShift: number; sweepMs: number; isSettled: boolean }
 
-export const newSpeed = (): Speed => ({ shown: 0, bars: Array(SAMPLES).fill(0), top: 1, sinceShift: 0, sweepMs: 0, isSettled: true })
+// cells: the footer's columns pass a wider line than the 6 cells of the single row.
+export const newSpeed = (cells = CELLS): Speed => ({ shown: 0, bars: Array(cells * 2).fill(0), top: 1, sinceShift: 0, sweepMs: 0, isSettled: true })
 
 // target: the tokens per second while a reply streams, 0 otherwise.
 export function tickSpeed(s: Speed, frameMs: number, target: number, isSweeping: boolean): void {
@@ -109,7 +110,7 @@ export function tickSpeed(s: Speed, frameMs: number, target: number, isSweeping:
 
 export function speedDots(s: Speed, isLive: boolean, isSweeping: boolean): string {
   if (isSweeping) {
-    const samples = sweepBars(s.sweepMs)
+    const samples = sweepBars(s.sweepMs, s.bars.length)
     return dotLine(samples, scale(samples, 1, false))
   }
   return dotLine(s.bars, scale(s.bars, s.top, isLive))
