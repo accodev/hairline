@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Feature parity: the first rule
+
+Hairline does the same in every agent it supports: Claude Code (`hooks/`) and Pi (`pi/`). A change to what the line shows or does lands in all of them in the same PR, with tests in each. A PR that changes one agent alone does not merge. A host that cannot do a feature at all, such as Pi with no transcript render hook, is the only exception, and the PR names the missing host API.
+
 The Claude desktop app never asks for `PromptHint`, so hairline draws there in `AbovePrompt`. `drawLine` serves both; `monospace` restyles hairline's text for the app.
 
 ## Check
@@ -26,7 +30,7 @@ CI runs both on Claude Code 2.1.312 (Node 22). `main` requires the `check` statu
 
 - `pi/index.ts` is the Pi extension, loaded through `pi.extensions` in `package.json`. It replaces Pi's footer with `ctx.ui.setFooter`.
 - `pi/line.ts` draws the footer as text with SGR codes for the 16 palette slots. `pi/anim.ts` ports `slot.tsx` and `speed.tsx`. Both run under `node --test` without the Pi host.
-- A change to the line in `hooks/` needs the same change in `pi/`, or a reason in the PR why Pi differs.
+- A change to the line in `hooks/` needs the same change in `pi/`, in the same PR. See Feature parity.
 - Pi tests live in `pi/tests.ts`. A `*.test.ts` name would make `claude plugin test` run them with the Claude Code test kit.
 - Check with `npm ci`, `npm run typecheck:pi` and `npm run test:pi`. CI runs them after the Claude Code steps.
 - Bump `version` in `package.json` on a behavior change of the Pi extension.
