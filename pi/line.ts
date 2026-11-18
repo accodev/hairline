@@ -72,6 +72,7 @@ export type View = {
   tools: Tool[]
   readout: string // the readout as the animation shows it, READOUT_WIDTH or TOOL_WIDTH cells
   graph: string // the graph, GRAPH_CELLS cells
+  breath: number // the sending track's palette slot, from breathSlot
   isLit: boolean // the graph draws at full strength while a reply streams or a request waits
   hasNerdFont: boolean
   open: 'ledger' | 'model' | 'effort' | null
@@ -180,14 +181,15 @@ export function toolName(name: string): string {
   return name.startsWith('mcp__') ? name.split('__').pop()! : name
 }
 
-// Exactly `width` cells: the first call's name and argument, or the name and the count of calls.
+// Exactly `width` cells. One call: its name and argument. Parallel calls: their count, then each
+// call's name and argument, so every tool the turn runs shows, not the first alone.
 export function toolReadout(tools: Tool[], width: number): { text: string; bright: number } {
   const first = tools[0]
   if (!first) return { text: PHASE_WORDS.tool.padStart(width), bright: 0 }
-  const more = tools.length < 2 ? first.arg : tools.every(t => t.name === first.name) ? `×${tools.length}` : `+${tools.length - 1}`
-  const full = `${first.name} ${more}`.replace(/\s+/g, ' ').trim()
+  const head = tools.length < 2 ? '' : `${tools.length} tools `
+  const full = (head + tools.map(t => `${t.name} ${t.arg}`.trim()).join(' · ')).replace(/\s+/g, ' ')
   const text = full.length > width ? `${full.slice(0, width - 1)}…` : full.padEnd(width)
-  return { text, bright: Math.min(first.name.length, width) }
+  return { text, bright: Math.min(head ? head.length - 1 : first.name.length, width) }
 }
 
 // The readout's target text for a phase, before the animation scrambles it.
@@ -313,7 +315,7 @@ function activityRow(v: View): string {
   const bright = v.phase === 'receiving' ? TPS_WIDTH : v.phase === 'tool' ? toolReadout(v.tools, TOOL_WIDTH).bright : 0
   const readout = `${v.readout.slice(0, bright)}${dim(v.readout.slice(bright))}`
   // A running tool's name fills the graph's cells too.
-  const dots = v.phase === 'tool' ? '' : ` ${paint(v.graph, { color: C.folder, dim: !v.isLit })}`
+  const dots = v.phase === 'tool' ? '' : ` ${paint(v.graph, v.phase === 'sending' ? { color: v.breath } : { color: C.folder, dim: !v.isLit })}`
   return `${phaseGlyph(v)}${readout}${dots}`
 }
 
@@ -322,9 +324,10 @@ function activityRow(v: View): string {
 function tokenSplitRow(v: View): string {
   if (counted(v.stats) === 0) return dim('--- tok')
   const inverse = v.open === 'ledger'
-  return hoverable([
+  return hoverable(paint([
     [v.stats.input, 'in'], [v.stats.output, 'out'], [v.stats.read, 'read'], [v.stats.write, 'write'],
-  ].map(([n, unit]) => paint(human(n as number).padStart(COUNT_WIDTH), { inverse }) + paint(` ${unit}`, { inverse, dim: true })).join(paint(' / ', { inverse, dim: true })), 'ledger', v)
+  // One muted gray: the token split is a tally to glance at, the activity above it is live.
+  ].map(([n, unit]) => `${human(n as number).padStart(COUNT_WIDTH)} ${unit}`).join(' / '), { inverse, dim: true }), 'ledger', v)
 }
 
 function limitCell(v: View, kind: string, label: string): string {

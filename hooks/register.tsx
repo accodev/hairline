@@ -6,6 +6,7 @@ const PCT_WIDTH = 4 // 100%
 const CONTEXT_WIDTH = 7 // 999k/1M
 const TPS_WIDTH = 4
 const TPS_MAX = 9999
+const READOUT_EASE_MS = 400 // a figure redrawn faster than this flickers past reading
 const WARN_FROM = 60
 const BAD_FROM = 85
 const RESET_SHOWN_FROM = 70
@@ -63,15 +64,18 @@ const EXTRA_RETRY_MS = 600_000
 // Claude Code theme keys, which follow the light or dark theme.
 type Palette = {
   ok: string; warn: string; bad: string; folder: string; branch: string; track: string; marker: string
+  breath: readonly string[] // the sending track's colors, darkest first: it fades through them and back
   effort: readonly string[]; ramp: readonly string[]
 }
 const TERMINAL_PALETTE: Palette = {
   ok: 'ansi256(2)', warn: 'ansi256(3)', bad: 'ansi256(1)', folder: 'ansi256(4)', branch: 'ansi256(5)', track: 'ansi256(8)', marker: 'ansi256(15)',
+  breath: ['ansi256(8)', 'ansi256(7)', 'ansi256(4)', 'ansi256(12)'],
   effort: ['ansi256(4)', 'ansi256(5)', 'ansi256(13)', 'ansi256(1)', 'ansi256(9)'],
   ramp: ['ansi256(10)', 'ansi256(2)', 'ansi256(11)', 'ansi256(3)', 'ansi256(1)', 'ansi256(9)'],
 }
 const THEME_PALETTE: Palette = {
   ok: 'success', warn: 'warning', bad: 'error', folder: 'suggestion', branch: 'merged', track: 'subtle', marker: 'text',
+  breath: ['subtle', 'subtle', 'suggestion', 'suggestion'],
   effort: ['suggestion', 'merged', 'warning', 'error', 'error'],
   ramp: ['success', 'success', 'warning', 'warning', 'error', 'error'],
 }
@@ -99,6 +103,7 @@ type Session = {
   stats: Stats
   limitStart: LimitStart
   tokensPerSecond: number
+  readoutTps: number // the figure the readout shows, eased every READOUT_EASE_MS
   phase: 'sending' | 'receiving' | 'tool' | 'idle'
   tools: { name: string; arg: string }[] // the tool calls of the main loop's last response
   sentAt: number // when the main loop's last request went out
@@ -119,7 +124,7 @@ type Session = {
 
 const emptyStats = (): Stats => ({ input: 0, write: 0, read: 0, output: 0, main: 0, sub: 0, turns: 0, activeMs: 0, costStart: null })
 const emptySession = (): Session => ({
-  folder: '', worktree: null, branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, phase: 'idle', tools: [], sentAt: 0, streaming: false,
+  folder: '', worktree: null, branch: null, effort: null, stats: emptyStats(), limitStart: {}, tokensPerSecond: 0, readoutTps: 0, phase: 'idle', tools: [], sentAt: 0, streaming: false,
   context: null, compactAt: null, rateLimits: [], costUsd: null, lastTurn: null, lastTurnUsd: null, lastRequestAt: null, pickedEffort: null, pickBase: null, seen: { effort: null, model: null },
 })
 let session = emptySession()
@@ -339,14 +344,15 @@ function toolArg(tool: string, input: unknown): string {
   }
 }
 
-// Exactly `width` cells: the first call's name and argument, or the name and the count of calls.
+// Exactly `width` cells. One call: its name and argument. Parallel calls: their count, then each
+// call's name and argument, so every tool the turn runs shows, not the first alone.
 export function toolReadout(tools: { name: string; arg: string }[], width: number): { text: string; bright: number } {
   const first = tools[0]
   if (!first) return { text: PHASE_WORDS.tool.padStart(width), bright: 0 }
-  const more = tools.length < 2 ? first.arg : tools.every(t => t.name === first.name) ? `×${tools.length}` : `+${tools.length - 1}`
-  const full = `${first.name} ${more}`.replace(/\s+/g, ' ').trim()
+  const head = tools.length < 2 ? '' : `${tools.length} tools `
+  const full = (head + tools.map(t => `${t.name} ${t.arg}`.trim()).join(' · ')).replace(/\s+/g, ' ')
   const text = full.length > width ? `${full.slice(0, width - 1)}…` : full.padEnd(width)
-  return { text, bright: Math.min(first.name.length, width) }
+  return { text, bright: Math.min(head ? head.length - 1 : first.name.length, width) }
 }
 
 function basename(path: string): string {
@@ -641,7 +647,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   // way. A running tool fills the readout and the graph's cells too; readout.tsx counts the sending time.
   const tool = toolReadout(session.tools, isDesktop ? TOOL_WIDTH : readoutWidth + 1 + graphCells)
   const readoutText = session.phase === 'receiving'
-    ? `${pad(String(Math.min(TPS_MAX, session.tokensPerSecond)), readoutWidth - 4)} t/s`
+    ? `${pad(String(Math.min(TPS_MAX, session.readoutTps)), readoutWidth - 4)} t/s`
     : session.phase === 'tool' ? tool.text : pad(PHASE_WORDS[session.phase], readoutWidth)
   const isToolShown = session.phase === 'tool'
   const Phase = () => {
@@ -793,13 +799,13 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
         <Client key="hairline-readout" module="./readout.tsx" props={{ text: readoutText, kind: session.phase, bright: session.phase === 'receiving' ? readoutWidth - 4 : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
       ) : isToolShown ? <Text dimColor>{readoutText}</Text> : session.phase === 'receiving' ? (
         <Box>
-          <Text>{pad(String(Math.min(TPS_MAX, tokensPerSecond)), readoutWidth - 4)}</Text>
+          <Text>{pad(String(Math.min(TPS_MAX, session.readoutTps)), readoutWidth - 4)}</Text>
           <Text dimColor> t/s</Text>
         </Box>
       ) : <Text dimColor>{pad(PHASE_WORDS[session.phase], readoutWidth)}</Text>}
       {Client && !isToolShown && <Text> </Text>}
       {Client && !isToolShown && (
-        <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop, ...(isDesktop ? {} : { cells: graphCells }) }} />
+        <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop, ...(isDesktop ? {} : { cells: graphCells, breath: c.breath }) }} />
       )}
     </Box>
   )
@@ -811,10 +817,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     </Box>
   ) : (
     <Button key="hairline-token-split" label="token split" plain onPress={() => toggle($, 'ledger')}>
-      {tokenSplit.flatMap(([n, unit], i) => [
-        <Text key={`n${i}`} inverse={open === 'ledger'}>{`${i ? ' / ' : ''}${n}`}</Text>,
-        <Text key={`u${i}`} inverse={open === 'ledger'} dimColor>{` ${unit}`}</Text>,
-      ])}
+      {/* One muted gray: the token split is a tally to glance at, the activity above it is live. */}
+      <Text inverse={open === 'ledger'} dimColor>{tokenSplit.map(([n, unit]) => `${n} ${unit}`).join(' / ')}</Text>
     </Button>
   )
 
@@ -1059,6 +1063,7 @@ export const register: Register = (on, options) => {
     let firstChunkAt = 0
     let chars = 0
     let lastSample = 0
+    let lastReadout = 0
     const recent: { at: number; chars: number }[] = []
     const stream = next(e)
     try {
@@ -1079,6 +1084,11 @@ export const register: Register = (on, options) => {
             const windowSecs = Math.min(RATE_WINDOW_MS, now - firstChunkAt) / 1000
             session.tokensPerSecond = Math.round(recent.reduce((sum, r) => sum + r.chars, 0) / charsPerToken / windowSecs)
             lastSample = now
+            // The graph takes every sample; the readout's figure eases at a pace the eye can read.
+            if (now - lastReadout >= READOUT_EASE_MS) {
+              session.readoutTps = session.readoutTps ? Math.round(session.readoutTps + (session.tokensPerSecond - session.readoutTps) / 2) : session.tokensPerSecond
+              lastReadout = now
+            }
             redraw($)
           }
         }
@@ -1098,6 +1108,7 @@ export const register: Register = (on, options) => {
       if (session.streaming) {
         session.streaming = false
         session.tokensPerSecond = 0
+        session.readoutTps = 0
         redraw($)
       }
     }

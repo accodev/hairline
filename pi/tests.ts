@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { visibleWidth } from '@earendil-works/pi-tui'
-import { frameText, newGraph, sendingText, graphText, tickGraph } from './anim.ts'
+import { breathSlot, frameText, newGraph, sendingText, graphText, tickGraph } from './anim.ts'
 import { cutWorkspace, drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, READOUT_WIDTH, readoutTarget, TOOL_WIDTH, toolArg, toolReadout, type View, worktreeOf } from './line.ts'
 
 const chr = String.fromCharCode(27)
@@ -31,6 +31,7 @@ const view = (over: Partial<View> = {}): View => ({
   tools: [],
   readout: readoutTarget('idle', 0, []).text,
   graph: '⠀⠀⠀⠀⠀⠀',
+  breath: 8,
   isLit: false,
   hasNerdFont: false,
   open: null,
@@ -162,7 +163,7 @@ test('tool arguments name the file, the command or the pattern', () => {
   assert.equal(toolArg({ command: 'npm test' }), 'npm test')
   assert.equal(toolArg({ pattern: 'TODO', path: 'src' }), 'src')
   assert.equal(toolArg({ url: 'https://www.example.com/a' }), 'example.com/a')
-  assert.equal(toolReadout([{ name: 'read', arg: 'a' }, { name: 'read', arg: 'b' }], TOOL_WIDTH).text.trim(), 'read ×2')
+  assert.equal(toolReadout([{ name: 'read', arg: 'a' }, { name: 'read', arg: 'b' }], TOOL_WIDTH).text.trim(), '2 tools read a · read b') // parallel calls: the count, then each call
 })
 
 test('figures and times keep their short forms', () => {
@@ -192,6 +193,16 @@ test('the graph rises with the stream and settles flat after it', () => {
   for (let i = 0; i < 400 && !s.isSettled; i++) tickGraph(s, 33, 0, false)
   assert.ok(s.isSettled)
   assert.equal(graphText(s, false, false), '⣀⣀⣀⣀⣀⣀')
+})
+
+test('sending breathes the whole track; a stream fills the graph from the bottom', () => {
+  // One breath over 1600 ms: the darkest slot at its start, the brightest halfway.
+  assert.equal(breathSlot(0), 8)
+  assert.equal(breathSlot(800), 12)
+  const g = newGraph(4)
+  assert.equal(graphText(g, false, true), '────')
+  for (let i = 0; i < 40; i++) tickGraph(g, 33, 100, false)
+  assert.match(graphText(g, true, false), /^[⣀⣤⣶⣿]{4}$/)
 })
 
 test('the extension draws the footer from Pi events', async () => {

@@ -2,7 +2,6 @@ import type { ClientModule } from 'claude-code'
 
 // A Client module, because hint-line redraws stop at 30 a second and the surface clock does not.
 
-const SHIFT_MS = 60
 // The desktop band's default. The terminal's columns pass a wider line through the cells prop.
 const CELLS = 6
 const SAMPLES = CELLS * 2 // a braille cell holds 2 columns of 4 dots
@@ -19,6 +18,21 @@ function scale(samples: number[], top: number, isLive: boolean): (v: number) => 
   const low = isLive ? Math.min(...samples) : 0
   const span = Math.max(top - low, top * MIN_SPAN)
   return v => Math.min(1, Math.max(0, (v - low) / span))
+}
+
+// Filled from the bottom, one cell per 2 samples: an area reads as a level at a glance, where a
+// thin line of dots read as noise.
+const AREA = '⣀⣤⣶⣿'
+export function areaLine(samples: number[], at: (v: number) => number): string {
+  return Array.from({ length: samples.length / 2 }, (_, cell) => AREA[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (AREA.length - 1))]!).join('')
+}
+
+// The breathing track while a request is out: the whole track fades through `breath`'s colors and
+// back, one breath each BREATH_MS. No progress can be known, so nothing moves along it.
+const BREATH_MS = 1600
+export function breathColor(ms: number, breath: readonly string[]): string {
+  const phase = (ms % BREATH_MS) / BREATH_MS
+  return breath[Math.round(((1 - Math.cos(phase * 2 * Math.PI)) / 2) * (breath.length - 1))]!
 }
 
 // Each column also lights the rows up to the previous sample, so steep steps stay joined.
@@ -45,7 +59,7 @@ function blocks(samples: number[], at: (v: number) => number): string[] {
 
 // sweep: a request is out and nothing has come back. No progress of it can be known, so a bump
 // runs across the line, one pass each SWEEP_MS, to show that the wait goes on.
-export type GraphProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number }
+export type GraphProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number; breath?: string[] }
 type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean; sweepMs?: number }
 
 const SWEEP_MS = 1200
@@ -86,10 +100,9 @@ const Graph: ClientModule<GraphProps, Anim> = (props, surface) => {
       const now = surface.state!
       const target = targets.get(surface)!
       const shown = now.shown + (target - now.shown) * ease
-      const sinceShift = now.sinceShift + frameMs
-      const isShift = sinceShift >= SHIFT_MS
+      // A new sample every frame: at one each 60 ms the graph lagged the stream it drew.
       const kept = fit(now.bars, lengths.get(surface)!)
-      const bars = isShift ? [...kept.slice(1), shown] : [...kept.slice(0, -1), shown]
+      const bars = [...kept.slice(1), shown]
       // The scale freezes when the stream ends, so the falling samples drop on screen. The line
       // runs on until every sample has reached the bottom row.
       const top = target > 0 ? Math.max(...bars, 1) : now.top
@@ -99,7 +112,7 @@ const Graph: ClientModule<GraphProps, Anim> = (props, surface) => {
         stop()
         stops.delete(surface)
       }
-      surface.setState({ shown, bars: isSettled ? bars.map(() => 0) : bars, top, sinceShift: isShift ? 0 : sinceShift, ticking: !isSettled, sweepMs: isSweeping ? (now.sweepMs ?? 0) + frameMs : 0 })
+      surface.setState({ shown, bars: isSettled ? bars.map(() => 0) : bars, top, sinceShift: 0, ticking: !isSettled, sweepMs: isSweeping ? (now.sweepMs ?? 0) + frameMs : 0 })
     })
     stops.set(surface, stop)
   }
@@ -116,7 +129,9 @@ const Graph: ClientModule<GraphProps, Anim> = (props, surface) => {
         ))}
       </Box>
     )
-    : <Text color={props.color} dimColor={!isLit}>{dotLine(samples, at)}</Text>
+    : props.sweep && props.breath
+      ? <Text color={breathColor(s.sweepMs ?? 0, props.breath)}>{'─'.repeat(length / 2)}</Text>
+      : <Text color={props.color} dimColor={!isLit}>{areaLine(samples, at)}</Text>
 }
 
 export default Graph
