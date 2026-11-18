@@ -3,6 +3,7 @@ import type { ClientModule } from 'claude-code'
 // A Client module, because hint-line redraws stop at 30 a second and the surface clock does not.
 
 const SHIFT_MS = 60
+// The desktop band's default. The terminal's columns pass a wider line through the cells prop.
 const CELLS = 6
 const SAMPLES = CELLS * 2 // a braille cell holds 2 columns of 4 dots
 // Unicode added the bottom braille row last, so its bits (0x40, 0x80) break the order.
@@ -24,7 +25,7 @@ function scale(samples: number[], top: number, isLive: boolean): (v: number) => 
 function dotLine(samples: number[], at: (v: number) => number): string {
   const rows = samples.map(v => 3 - Math.round(at(v) * 3))
   let line = ''
-  for (let cell = 0; cell < CELLS; cell++) {
+  for (let cell = 0; cell < samples.length / 2; cell++) {
     let bits = 0
     for (const side of [0, 1] as const) {
       const i = cell * 2 + side
@@ -39,21 +40,21 @@ function dotLine(samples: number[], at: (v: number) => number): string {
 
 // One cell per 2 samples, as the braille line has.
 function blocks(samples: number[], at: (v: number) => number): string[] {
-  return Array.from({ length: CELLS }, (_, cell) => BLOCKS[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (BLOCKS.length - 1))]!)
+  return Array.from({ length: samples.length / 2 }, (_, cell) => BLOCKS[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (BLOCKS.length - 1))]!)
 }
 
 // sweep: a request is out and nothing has come back. No progress of it can be known, so a bump
 // runs across the line, one pass each SWEEP_MS, to show that the wait goes on.
-export type SpeedProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean }
+export type SpeedProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number }
 type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean; sweepMs?: number }
 
 const SWEEP_MS = 1200
 const SWEEP_HALF_WIDTH = 2 // samples on each side of the bump's top
 
 // The samples of the bump at `ms` into the sweep; it starts and ends outside the line.
-export function sweepBars(ms: number): number[] {
-  const at = ((ms % SWEEP_MS) / SWEEP_MS) * (SAMPLES + 2 * SWEEP_HALF_WIDTH) - SWEEP_HALF_WIDTH
-  return Array.from({ length: SAMPLES }, (_, i) => Math.max(0, 1 - Math.abs(i - at) / SWEEP_HALF_WIDTH))
+export function sweepBars(ms: number, samples = SAMPLES): number[] {
+  const at = ((ms % SWEEP_MS) / SWEEP_MS) * (samples + 2 * SWEEP_HALF_WIDTH) - SWEEP_HALF_WIDTH
+  return Array.from({ length: samples }, (_, i) => Math.max(0, 1 - Math.abs(i - at) / SWEEP_HALF_WIDTH))
 }
 
 // Per instance: the terminal and the desktop app each run their own Client of this module.
@@ -62,12 +63,21 @@ const targets = new WeakMap<object, number>()
 // so two calls before it could each start a timer, and the first one would never stop.
 const stops = new WeakMap<object, () => void>()
 const sweeps = new WeakMap<object, boolean>()
+const lengths = new WeakMap<object, number>()
+
+// A width change keeps the newest samples, so the line does not restart.
+function fit(bars: number[], length: number): number[] {
+  return bars.length >= length ? bars.slice(bars.length - length) : [...Array(length - bars.length).fill(0), ...bars]
+}
 
 const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
   const { Box, Text } = surface.elements
   targets.set(surface, props.live ? props.rate : 0)
   sweeps.set(surface, !!props.sweep)
-  const s: Anim = surface.state ?? { shown: 0, bars: Array(SAMPLES).fill(0), top: 1, sinceShift: 0, ticking: false }
+  lengths.set(surface, (props.cells ?? CELLS) * 2)
+  const length = (props.cells ?? CELLS) * 2
+  const saved: Anim = surface.state ?? { shown: 0, bars: Array(length).fill(0), top: 1, sinceShift: 0, ticking: false }
+  const s: Anim = saved.bars.length === length ? saved : { ...saved, bars: fit(saved.bars, length) }
   if ((props.live || props.sweep) && !stops.has(surface)) {
     surface.setState({ ...s, ticking: true })
     const frameMs = props.frameMs
@@ -78,7 +88,8 @@ const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
       const shown = now.shown + (target - now.shown) * ease
       const sinceShift = now.sinceShift + frameMs
       const isShift = sinceShift >= SHIFT_MS
-      const bars = isShift ? [...now.bars.slice(1), shown] : [...now.bars.slice(0, -1), shown]
+      const kept = fit(now.bars, lengths.get(surface)!)
+      const bars = isShift ? [...kept.slice(1), shown] : [...kept.slice(0, -1), shown]
       // The scale freezes when the stream ends, so the falling samples drop on screen. The line
       // runs on until every sample has reached the bottom row.
       const top = target > 0 ? Math.max(...bars, 1) : now.top
@@ -93,13 +104,13 @@ const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
     stops.set(surface, stop)
   }
   const isLit = props.live || !!props.sweep
-  const samples = props.sweep ? sweepBars(s.sweepMs ?? 0) : s.bars
+  const samples = props.sweep ? sweepBars(s.sweepMs ?? 0, length) : s.bars
   const at = props.sweep ? scale(samples, 1, false) : scale(s.bars, s.top, props.live)
   // The desktop app's own font is proportional; the line around it is monospaced there.
   // The blocks come from a fallback font of other widths, so each sits in a box one cell wide.
   return props.mono
     ? (
-      <Box width={CELLS}>
+      <Box width={length / 2}>
         {blocks(samples, at).map((block, i) => (
           <Box key={`block-${i}`} width={1} overflow="hidden"><Text color={props.color} dimColor={!isLit} mono size="caption">{block}</Text></Box>
         ))}

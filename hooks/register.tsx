@@ -37,6 +37,10 @@ const PHASE_WORDS = { idle: 'idle', sending: 'sending', tool: 'running' } as con
 const SLOT_WIDTH = TPS_WIDTH + ' t/s'.length
 // The slot, its gap and speed.tsx's 6 cells: a running tool's name and argument fill them all.
 const TOOL_WIDTH = SLOT_WIDTH + 1 + 6
+const SPEED_CELLS_MIN = 16
+// The terminal's columns give the phase words and the speed more room than the desktop band has.
+const SLOT_WIDTH_WIDE = 12
+const SPEED_CELLS_MAX = 40
 const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
@@ -602,16 +606,21 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const tokens = counted(stats)
   // Each kind costs a different price, so the line splits them as Pi's footer does.
   const tokenSplit = [[human(stats.input), 'in'], [human(stats.output), 'out'], [human(stats.read), 'read'], [human(stats.write), 'write']] as const
+  // In the terminal the speed graph ends where the tokens under it end: the phase glyph and the
+  // slot take slotWidth + 3 cells of that row, the graph the rest, within 16 to 40 cells.
+  const slotWidth = isDesktop ? SLOT_WIDTH : SLOT_WIDTH_WIDE
+  const tokenText = tokens === 0 ? '--- tok' : tokenSplit.map(([n, unit]) => `${n} ${unit}`).join(' / ')
+  const speedCells = Math.min(SPEED_CELLS_MAX, Math.max(SPEED_CELLS_MIN, tokenText.length - slotWidth - 3))
   const pct = context?.percent ?? null
   const now = Date.now()
 
   const Sep = () => <Text dimColor> · </Text>
-  // The number and " t/s" while a reply streams, the phase's word otherwise: SLOT_WIDTH cells either
-  // way. A running tool fills TOOL_WIDTH, the dot line's cells too; slot.tsx counts the sending time.
-  const tool = toolSlot(session.tools, TOOL_WIDTH)
+  // The number and " t/s" while a reply streams, the phase's word otherwise: slotWidth cells either
+  // way. A running tool fills the slot and the dot line's cells too; slot.tsx counts the sending time.
+  const tool = toolSlot(session.tools, isDesktop ? TOOL_WIDTH : slotWidth + 1 + speedCells)
   const speedSlot = session.phase === 'receiving'
-    ? `${slot(String(Math.min(TPS_MAX, session.tokensPerSecond)), TPS_WIDTH)} t/s`
-    : session.phase === 'tool' ? tool.text : slot(PHASE_WORDS[session.phase], SLOT_WIDTH)
+    ? `${slot(String(Math.min(TPS_MAX, session.tokensPerSecond)), slotWidth - 4)} t/s`
+    : session.phase === 'tool' ? tool.text : slot(PHASE_WORDS[session.phase], slotWidth)
   const isToolShown = session.phase === 'tool'
   const Phase = () => {
     switch (session.phase) {
@@ -752,22 +761,23 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   }
 
   // The pieces both layouts share. Built once per draw, each goes into one layout only.
-  const speedBody = (
+  // Idle in the terminal, the slot stays empty: a dim glyph, a word and a flat graph only said so.
+  const speedBody = !isDesktop && session.phase === 'idle' ? <Text> </Text> : (
     <Box flexShrink={0}>
       {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
       {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
       {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
       {Client ? (
-        <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
+        <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? slotWidth - 4 : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
       ) : isToolShown ? <Text dimColor>{speedSlot}</Text> : session.phase === 'receiving' ? (
         <Box>
-          <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), TPS_WIDTH)}</Text>
+          <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), slotWidth - 4)}</Text>
           <Text dimColor> t/s</Text>
         </Box>
-      ) : <Text dimColor>{slot(PHASE_WORDS[session.phase], SLOT_WIDTH)}</Text>}
+      ) : <Text dimColor>{slot(PHASE_WORDS[session.phase], slotWidth)}</Text>}
       {Client && !isToolShown && <Text> </Text>}
       {Client && !isToolShown && (
-        <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
+        <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop, ...(isDesktop ? {} : { cells: speedCells }) }} />
       )}
     </Box>
   )
@@ -908,11 +918,12 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           {speedBody}
           <Box flexShrink={0}>{tokenFigures}</Box>
         </Box>
-        <Box flexDirection="column" flexShrink={0} marginRight={3}>
+        {/* The limits belong to the account, not this session: they sit right, beside the model. */}
+        <Box flexGrow={1} />
+        <Box flexDirection="column" flexShrink={0} marginRight={6}>
           {limitCell('five_hour', '5h')}
           <Box flexShrink={0}>{limitCell('seven_day', '7d')}{extraSpend}</Box>
         </Box>
-        <Box flexGrow={1} />
         <Box flexDirection="column" flexShrink={0} alignItems="flex-end">
           {modelEffort || <Text> </Text>}
           {sessionIdControl || <Text> </Text>}
