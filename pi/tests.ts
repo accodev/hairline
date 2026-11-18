@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { visibleWidth } from '@earendil-works/pi-tui'
-import { breathSlot, frameText, newGraph, sendingText, graphText, tickGraph } from './anim.ts'
+import { frameText, newGraph, scanCells, SECONDS_WIDTH, sendingText, graphText, tickGraph, waitingText } from './anim.ts'
 import { cutWorkspace, drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, READOUT_WIDTH, readoutTarget, TOOL_WIDTH, toolArg, toolReadout, type View, worktreeOf } from './line.ts'
 
 const chr = String.fromCharCode(27)
@@ -31,7 +31,7 @@ const view = (over: Partial<View> = {}): View => ({
   tools: [],
   readout: readoutTarget('idle', 0, []).text,
   graph: '⠀⠀⠀⠀⠀⠀',
-  breath: { color: 4, dim: true },
+  sweepMs: 0,
   isLit: false,
   hasNerdFont: false,
   open: null,
@@ -148,7 +148,7 @@ test('the panel lists cost, tokens, turns and limits, and other extensions keep 
 
 test('the activity keeps one width in every phase', () => {
   const widths = (['idle', 'sending', 'receiving'] as const).map(phase => readoutTarget(phase, 1234, []).text.length)
-  assert.deepEqual(widths, [READOUT_WIDTH, READOUT_WIDTH, READOUT_WIDTH])
+  assert.deepEqual(widths, [READOUT_WIDTH, READOUT_WIDTH + SECONDS_WIDTH, READOUT_WIDTH])
   const tool = toolReadout([{ name: 'bash', arg: 'npm test' }], TOOL_WIDTH)
   assert.equal(tool.text.length, TOOL_WIDTH)
   assert.equal(tool.bright, 4)
@@ -212,10 +212,18 @@ test('at the widest figures every row keeps its columns and the token split stay
   }
 })
 
-test('sending breathes the whole track; a stream fills the graph from the bottom', () => {
-  // One breath over 1900 ms: dim blue at its start, bright blue halfway.
-  assert.deepEqual(breathSlot(0), { color: 4, dim: true })
-  assert.deepEqual(breathSlot(950), { color: 12, dim: false })
+test('sending waits with a scan; a stream fills the graph from the bottom', () => {
+  // The dots grow every 400 ms; the time keeps the last 6 cells.
+  assert.equal(waitingText(0, 18), 'waiting.      0.0s')
+  assert.equal(waitingText(4_160, 18), 'waiting..     4.1s')
+  assert.equal(waitingText(123_400, 18), 'waiting...  123.4s')
+  // A 6-cell head enters, crosses and leaves a 34-cell track in 1500 ms.
+  assert.deepEqual(scanCells(0, 34), [0, 0, 34])
+  assert.deepEqual(scanCells(750, 34), [14, 6, 14])
+  assert.deepEqual(scanCells(1_499, 34), [33, 1, 0])
+  // The sending row keeps the activity's width: the glyph, 18 cells of readout, a space, 34 of scan.
+  const lines = drawFooter(view({ phase: 'sending', readout: waitingText(4_160, 18), sweepMs: 750, hasNerdFont: true }), 200).lines.map(plain)
+  assert.match(lines[0]!, /↑ waiting\.\.     4\.1s ─{14}━{6}─{14}/)
   const g = newGraph(4)
   assert.equal(graphText(g, false, true), '────')
   for (let i = 0; i < 40; i++) tickGraph(g, 33, 100, false)

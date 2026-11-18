@@ -27,13 +27,17 @@ export function areaLine(samples: number[], at: (v: number) => number): string {
   return Array.from({ length: samples.length / 2 }, (_, cell) => AREA[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (AREA.length - 1))]!).join('')
 }
 
-// The breathing track while a request is out: the whole track fades through `breath`'s steps and
-// back, one breath each BREATH_MS. No progress can be known, so nothing moves along it.
-const BREATH_MS = 1900
-export type BreathStep = { color: string; dim: boolean }
-export function breathColor(ms: number, breath: readonly BreathStep[]): BreathStep {
-  const phase = (ms % BREATH_MS) / BREATH_MS
-  return breath[Math.round(((1 - Math.cos(phase * 2 * Math.PI)) / 2) * (breath.length - 1))]!
+// The scan while a request is out: a SCAN_HEAD-cell ━ runs along a ─ track in the context bar's own
+// glyphs, one pass each SCAN_MS. No progress can be known, so the motion says only that the wait goes on.
+const SCAN_MS = 1500
+const SCAN_HEAD = 6
+// The cells before the head, of the head and after it, at `ms` into the scan. The head enters and
+// leaves the track, so a pass starts and ends with a bare track.
+export function scanCells(ms: number, cells: number): [number, number, number] {
+  const at = Math.floor(((ms % SCAN_MS) / SCAN_MS) * (cells + SCAN_HEAD)) - SCAN_HEAD
+  const from = Math.min(cells, Math.max(0, at))
+  const to = Math.min(cells, Math.max(0, at + SCAN_HEAD))
+  return [from, to - from, cells - to]
 }
 
 // Each column also lights the rows up to the previous sample, so steep steps stay joined.
@@ -60,7 +64,7 @@ function blocks(samples: number[], at: (v: number) => number): string[] {
 
 // sweep: a request is out and nothing has come back. No progress of it can be known, so a bump
 // runs across the line, one pass each SWEEP_MS, to show that the wait goes on.
-export type GraphProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number; breath?: BreathStep[] }
+export type GraphProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number; scan?: boolean } // scan: the sending scan in place of the bump
 type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean; sweepMs?: number }
 
 const SWEEP_MS = 1200
@@ -130,8 +134,17 @@ const Graph: ClientModule<GraphProps, Anim> = (props, surface) => {
         ))}
       </Box>
     )
-    : props.sweep && props.breath
-      ? (() => { const step = breathColor(s.sweepMs ?? 0, props.breath); return <Text color={step.color} dimColor={step.dim}>{'─'.repeat(length / 2)}</Text> })()
+    : props.sweep && props.scan
+      ? (() => {
+        const [before, head, after] = scanCells(s.sweepMs ?? 0, length / 2)
+        return (
+          <Box>
+            <Text dimColor>{'─'.repeat(before)}</Text>
+            <Text color={props.color}>{'━'.repeat(head)}</Text>
+            <Text dimColor>{'─'.repeat(after)}</Text>
+          </Box>
+        )
+      })()
       : <Text color={props.color} dimColor={!isLit}>{areaLine(samples, at)}</Text>
 }
 

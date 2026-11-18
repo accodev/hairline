@@ -22,6 +22,14 @@ export function sendingText(ms: number, width: number): string {
   return `${(Math.floor(ms / SENDING_STEP_MS) / 10).toFixed(1)}s`.padStart(width)
 }
 
+// The readout while a request is out: "waiting" with 1 to 3 dots, one more each DOT_MS, then the
+// time in its last SECONDS_WIDTH cells: waiting..    4.1s.
+export const SECONDS_WIDTH = 6 // 123.4s
+const DOT_MS = 400
+export function waitingText(ms: number, width: number): string {
+  return `waiting${'.'.repeat(1 + (Math.floor(ms / DOT_MS) % 3))}`.padEnd(width - SECONDS_WIDTH) + sendingText(ms, SECONDS_WIDTH)
+}
+
 export type Readout = { kind: string; from: string; frame: number; shown: string }
 
 export const newReadout = (): Readout => ({ kind: 'idle', from: '', frame: Number.POSITIVE_INFINITY, shown: '' })
@@ -112,17 +120,19 @@ export function areaLine(samples: number[], at: (v: number) => number): string {
   return Array.from({ length: samples.length / 2 }, (_, cell) => AREA[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (AREA.length - 1))]!).join('')
 }
 
-// While a request is out the graph is a plain track, and breathSlot gives its color.
+// While a request is out the graph is a plain track, and scanCells places the head on it.
 export function graphText(s: Graph, isLive: boolean, isSweeping: boolean): string {
   if (isSweeping) return '─'.repeat(s.bars.length / 2)
   return areaLine(s.bars, scale(s.bars, s.top, isLive))
 }
 
-// The breathing track: one blue, dim, plain and bright, and back, one breath each BREATH_MS: as
-// near as 16 palette slots come to the mockup's fade of one blue. Nothing moves along it.
-const BREATH_MS = 1900
-export const BREATH = [{ color: 4, dim: true }, { color: 4, dim: false }, { color: 12, dim: false }] as const
-export function breathSlot(ms: number): { color: number; dim: boolean } {
-  const phase = (ms % BREATH_MS) / BREATH_MS
-  return BREATH[Math.round(((1 - Math.cos(phase * 2 * Math.PI)) / 2) * (BREATH.length - 1))]!
+// The scan while a request is out, as in hooks/graph.tsx: a SCAN_HEAD-cell ━ runs along a ─
+// track, one pass each SCAN_MS. No progress can be known, so the motion says only that the wait goes on.
+const SCAN_MS = 1500
+const SCAN_HEAD = 6
+export function scanCells(ms: number, cells: number): [number, number, number] {
+  const at = Math.floor(((ms % SCAN_MS) / SCAN_MS) * (cells + SCAN_HEAD)) - SCAN_HEAD
+  const from = Math.min(cells, Math.max(0, at))
+  const to = Math.min(cells, Math.max(0, at + SCAN_HEAD))
+  return [from, to - from, cells - to]
 }

@@ -1,4 +1,5 @@
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui'
+import { scanCells, SECONDS_WIDTH } from './anim.ts'
 
 // The footer as text. Pi hands every line to the terminal as is, so the colors are SGR codes for
 // the 16 palette slots: each person's terminal scheme picks the shades, as in Claude Code.
@@ -73,7 +74,7 @@ export type View = {
   tools: Tool[]
   readout: string // the readout as the animation shows it, READOUT_WIDTH or TOOL_WIDTH cells
   graph: string // the graph, GRAPH_CELLS cells
-  breath: { color: number; dim: boolean } // the sending track's step, from breathSlot
+  sweepMs: number // the time into the sending scan
   isLit: boolean // the graph draws at full strength while a reply streams or a request waits
   hasNerdFont: boolean
   open: 'ledger' | 'model' | 'effort' | null
@@ -197,6 +198,8 @@ export function toolReadout(tools: Tool[], width: number): { text: string; brigh
 export function readoutTarget(phase: Phase, tps: number, tools: Tool[]): { text: string; bright: number } {
   if (phase === 'receiving') return { text: `${String(Math.min(TPS_MAX, tps)).padStart(TPS_WIDTH)} t/s`, bright: TPS_WIDTH }
   if (phase === 'tool') return toolReadout(tools, TOOL_WIDTH)
+  // Sending: the readout takes the graph's first SECONDS_WIDTH cells for the time after "waiting...".
+  if (phase === 'sending') return { text: ' '.repeat(READOUT_WIDTH + SECONDS_WIDTH), bright: 0 }
   return { text: PHASE_WORDS[phase].padStart(READOUT_WIDTH), bright: 0 }
 }
 
@@ -313,10 +316,16 @@ function contextCell(v: View): string {
 // Idle, the readout stays empty: a dim glyph, a word and a flat graph only said so.
 function activityRow(v: View): string {
   if (v.phase === 'idle') return ''
+  if (v.phase === 'sending') {
+    // The word is dim and the time is at full strength: the time is what changes.
+    const [before, head, after] = scanCells(v.sweepMs, GRAPH_CELLS - SECONDS_WIDTH)
+    const scan = `${dim('─'.repeat(before))}${paint('━'.repeat(head), { color: C.folder })}${dim('─'.repeat(after))}`
+    return `${phaseGlyph(v)}${dim(v.readout.slice(0, -SECONDS_WIDTH))}${v.readout.slice(-SECONDS_WIDTH)} ${scan}`
+  }
   const bright = v.phase === 'receiving' ? TPS_WIDTH : v.phase === 'tool' ? toolReadout(v.tools, TOOL_WIDTH).bright : 0
   const readout = `${v.readout.slice(0, bright)}${dim(v.readout.slice(bright))}`
   // A running tool's name fills the graph's cells too.
-  const dots = v.phase === 'tool' ? '' : ` ${paint(v.graph, v.phase === 'sending' ? { color: v.breath.color, dim: v.breath.dim } : { color: C.folder, dim: !v.isLit })}`
+  const dots = v.phase === 'tool' ? '' : ` ${paint(v.graph, { color: C.folder, dim: !v.isLit })}`
   return `${phaseGlyph(v)}${readout}${dots}`
 }
 
