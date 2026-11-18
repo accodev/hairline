@@ -1168,6 +1168,13 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // A Client that fails drops out of the line with no trace on screen; the toast names the module
+  // and the reason, so a broken frame shows up in use, not only in a log nobody reads.
+  on('ui.fault', async ($, e, next) => {
+    $.ui.toast(`hairline: ${e.module} failed (${e.phase}): ${e.reason}`)
+    return next(e)
+  })
+
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => drawLine($, e, await next(e)))
 
   // The desktop app never asks for PromptHint, so the line goes in this band there. A survey owns it
