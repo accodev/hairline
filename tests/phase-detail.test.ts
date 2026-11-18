@@ -37,9 +37,9 @@ test('the sweep bump crosses the line and leaves it', () => {
 })
 
 test('sending breathes the whole track; a stream fills the graph from the bottom', () => {
-  const breath = ['ansi256(8)', 'ansi256(7)', 'ansi256(4)', 'ansi256(12)']
-  // One breath over 1600 ms: the darkest color at its start, the brightest halfway.
-  expect(breathColor(0, breath)).toBe('ansi256(8)')
-  expect(breathColor(800, breath)).toBe('ansi256(12)')
+  const breath = [{ color: 'ansi256(4)', dim: true }, { color: 'ansi256(4)', dim: false }, { color: 'ansi256(12)', dim: false }]
+  // One breath over 1900 ms: dim blue at its start, bright blue halfway.
+  expect(breathColor(0, breath)).toEqual({ color: 'ansi256(4)', dim: true })
+  expect(breathColor(950, breath)).toEqual({ color: 'ansi256(12)', dim: false })
   expect(areaLine([0, 0, 0.5, 0.5, 1, 1], v => v)).toBe('⣀⣶⣿')
 })
