@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { visibleWidth } from '@earendil-works/pi-tui'
-import { frameText, newSpeed, sendingText, speedDots, tickSpeed } from './anim.ts'
-import { cutPlace, drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, SLOT_WIDTH, slotTarget, TOOL_WIDTH, toolArg, toolSlot, type View, worktreeOf } from './line.ts'
+import { frameText, newGraph, sendingText, graphText, tickGraph } from './anim.ts'
+import { cutWorkspace, drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, READOUT_WIDTH, readoutTarget, TOOL_WIDTH, toolArg, toolReadout, type View, worktreeOf } from './line.ts'
 
 const chr = String.fromCharCode(27)
 const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '')
@@ -29,8 +29,8 @@ const view = (over: Partial<View> = {}): View => ({
   extra: null,
   phase: 'idle',
   tools: [],
-  slot: slotTarget('idle', 0, []).text,
-  dots: '⠀⠀⠀⠀⠀⠀',
+  readout: readoutTarget('idle', 0, []).text,
+  graph: '⠀⠀⠀⠀⠀⠀',
   isLit: false,
   hasNerdFont: false,
   open: null,
@@ -51,7 +51,7 @@ test('draws two rows of columns over a rule across the footer', () => {
   assert.equal(lines.length, 3)
   for (const line of lines) assert.equal(visibleWidth(line), 160)
   const [top, bottom, bar] = lines.map(plain) as [string, string, string]
-  // Idle, the speed slot is blank.
+  // Idle, the readout is blank.
   assert.match(top, /^market-it \(main\) {40,}5h 38% \S+ +opus 5\.5 high$/)
   assert.match(bottom, /^52% 104k\/200k · compacts at 80% +80 in \/ +400k out \/ +8\.3M read \/ +2M write +7d 91% 3d +02c6e8dd$/)
   // 52% of 160 cells, and the auto-compact mark at 80%: cell 128.
@@ -84,13 +84,13 @@ test('a worktree shows after the repository name, next to the branch', () => {
   assert.match(top({ worktree: null, branch: null }), /^hairline /)
   // Long names are cut to the column, the longer first, and the row stays one row.
   const name = '1245_the-tills-fiscal-module-runs-as'
-  const cut = cutPlace('market-it', name, `accodev/${name}`, false, 52)
+  const cut = cutWorkspace('market-it', name, `accodev/${name}`, false, 52)
   assert.equal('market-it'.length + 2 + cut.worktree.length + 3 + cut.branch.length + 1, 52)
   assert.match(cut.worktree, /…$/)
   assert.match(cut.branch, /…$/)
 })
 
-test('a narrow footer shortens the location first and keeps every figure', () => {
+test('a narrow footer shortens the workspace first and keeps every figure', () => {
   const [top, bottom] = drawFooter(view({ folder: 'a-very-long-folder-name-for-a-repository', worktree: 'a-long-worktree' }), 140).lines.map(plain) as [string, string]
   assert.equal(visibleWidth(top), 140)
   assert.match(top, /…/)
@@ -107,13 +107,13 @@ test('a narrow footer keeps the model, the thinking level and the session id', (
   }
 })
 
-test('the token count, the model, the thinking level and the session id are clickable', () => {
+test('the token split, the model, the thinking level and the session id are clickable', () => {
   const { lines, hits } = drawFooter(view(), 160)
   const at = (action: string) => {
     const hit = hits.find(h => h.action === action)!
     return [...plain(lines[hit.row]!)].slice(hit.from, hit.to).join('').trim()
   }
-  assert.match(at('tokens'), /^80 in \/ +400k out \/ +8\.3M read \/ +2M write$/)
+  assert.match(at('ledger'), /^80 in \/ +400k out \/ +8\.3M read \/ +2M write$/)
   assert.equal(at('model'), 'opus 5.5')
   assert.equal(at('effort'), 'high')
   assert.equal(at('id'), '02c6e8dd')
@@ -136,7 +136,7 @@ test('the pickers list the models and the thinking levels under the line', () =>
 })
 
 test('the panel lists cost, tokens, turns and limits, and other extensions keep their status', () => {
-  const lines = drawFooter(view({ open: 'tokens', statuses: ['lsp: ready'] }), 160).lines.map(plain)
+  const lines = drawFooter(view({ open: 'ledger', statuses: ['lsp: ready'] }), 160).lines.map(plain)
   assert.equal(lines.length, 8)
   assert.match(lines[3]!, /^ {2}cost {4}\$4\.82 · \$2\.00 per active hour/)
   assert.match(lines[4]!, /^ {2}tokens {2}80 in · 2M cache write · 8\.3M cache read · 400k out · 81% cache hit/)
@@ -145,13 +145,13 @@ test('the panel lists cost, tokens, turns and limits, and other extensions keep 
   assert.equal(lines[7], 'lsp: ready')
 })
 
-test('the speed group keeps one width in every phase', () => {
-  const widths = (['idle', 'sending', 'receiving'] as const).map(phase => slotTarget(phase, 1234, []).text.length)
-  assert.deepEqual(widths, [SLOT_WIDTH, SLOT_WIDTH, SLOT_WIDTH])
-  const tool = toolSlot([{ name: 'bash', arg: 'npm test' }], TOOL_WIDTH)
+test('the activity keeps one width in every phase', () => {
+  const widths = (['idle', 'sending', 'receiving'] as const).map(phase => readoutTarget(phase, 1234, []).text.length)
+  assert.deepEqual(widths, [READOUT_WIDTH, READOUT_WIDTH, READOUT_WIDTH])
+  const tool = toolReadout([{ name: 'bash', arg: 'npm test' }], TOOL_WIDTH)
   assert.equal(tool.text.length, TOOL_WIDTH)
   assert.equal(tool.bright, 4)
-  const toolLines = drawFooter(view({ phase: 'tool', tools: [{ name: 'bash', arg: 'npm test' }], slot: tool.text }), 160).lines.map(plain)
+  const toolLines = drawFooter(view({ phase: 'tool', tools: [{ name: 'bash', arg: 'npm test' }], readout: tool.text }), 160).lines.map(plain)
   const idleLines = drawFooter(view(), 160).lines.map(plain)
   assert.equal(toolLines[1]!.indexOf('80 in'), idleLines[1]!.indexOf('80 in'))
   assert.equal(toolLines[0]!.indexOf('5h'), idleLines[0]!.indexOf('5h'))
@@ -162,7 +162,7 @@ test('tool arguments name the file, the command or the pattern', () => {
   assert.equal(toolArg({ command: 'npm test' }), 'npm test')
   assert.equal(toolArg({ pattern: 'TODO', path: 'src' }), 'src')
   assert.equal(toolArg({ url: 'https://www.example.com/a' }), 'example.com/a')
-  assert.equal(toolSlot([{ name: 'read', arg: 'a' }, { name: 'read', arg: 'b' }], TOOL_WIDTH).text.trim(), 'read ×2')
+  assert.equal(toolReadout([{ name: 'read', arg: 'a' }, { name: 'read', arg: 'b' }], TOOL_WIDTH).text.trim(), 'read ×2')
 })
 
 test('figures and times keep their short forms', () => {
@@ -180,18 +180,18 @@ test('figures and times keep their short forms', () => {
   assert.equal(sendingText(4_160, 8), '    4.1s')
 })
 
-test('the slot scrambles, then settles left to right', () => {
+test('the readout scrambles, then settles left to right', () => {
   assert.notEqual(frameText('idle', 'sending', 0), 'sending')
   assert.equal(frameText('idle', 'sending', 2 + 7), 'sending')
 })
 
-test('the dot line rises with the stream and settles flat after it', () => {
-  const s = newSpeed()
-  for (let i = 0; i < 40; i++) tickSpeed(s, 33, 100, false)
-  assert.notEqual(speedDots(s, true, false), '⠀⠀⠀⠀⠀⠀')
-  for (let i = 0; i < 400 && !s.isSettled; i++) tickSpeed(s, 33, 0, false)
+test('the graph rises with the stream and settles flat after it', () => {
+  const s = newGraph()
+  for (let i = 0; i < 40; i++) tickGraph(s, 33, 100, false)
+  assert.notEqual(graphText(s, true, false), '⠀⠀⠀⠀⠀⠀')
+  for (let i = 0; i < 400 && !s.isSettled; i++) tickGraph(s, 33, 0, false)
   assert.ok(s.isSettled)
-  assert.equal(speedDots(s, false, false), '⣀⣀⣀⣀⣀⣀')
+  assert.equal(graphText(s, false, false), '⣀⣀⣀⣀⣀⣀')
 })
 
 test('the extension draws the footer from Pi events', async () => {
@@ -249,7 +249,7 @@ test('the extension draws the footer from Pi events', async () => {
   const message = { role: 'assistant', usage, content: [{ type: 'toolCall', name: 'bash', arguments: { command: 'npm test' } }] }
   entries.push({ type: 'message', message })
   await emit('message_end', { message })
-  await new Promise(done => setTimeout(done, 1_000)) // the slot scrambles, then settles
+  await new Promise(done => setTimeout(done, 1_000)) // the readout scrambles, then settles
   assert.match(line(), /bash npm test/)
   await emit('agent_settled', { aborted: false })
   assert.match(line(), /5h 38%[\s\S]*1k in \/ +500 out \/ +9k read \/ +2k write/)

@@ -7,23 +7,23 @@ import type { ClientModule } from 'claude-code'
 // the cells settle on the new text from left to right, one each frame after the first SETTLE_AT.
 const SETTLE_AT = 2
 const NOISE = 'abcdefghijklmnopqrstuvwxyz0123456789/'
-const SENDING = 'sending' // the phase whose time the slot counts: the request is out, nothing back yet
+const SENDING = 'sending' // the phase whose time the readout counts: the request is out, nothing back yet
 const SENDING_STEP_MS = 100 // the time shows tenths of a second
 
-export type SlotProps = {
-  text: string // the whole slot, already padded to its width
+export type ReadoutProps = {
+  text: string // the whole readout, already padded to its width
   kind: string // the phase: a change of kind scrambles, a change of text alone does not
   bright: number // the leading cells drawn at full strength; the rest are dim
   frameMs: number
   sentAt?: number // when the request went out (epoch ms): the sending time counts from it
   mono?: boolean
 }
-type Slot = { kind: string; from: string; frame: number; sendingMs: number } // sendingMs: the time drawn
+type Readout = { kind: string; from: string; frame: number; sendingMs: number } // sendingMs: the time drawn
 
 // Per instance: the terminal and the desktop app each run their own Client of this module.
 const shown = new WeakMap<object, string>()
 // The props of the last call, for the timer, which outlives the call that started it.
-const latest = new WeakMap<object, SlotProps>()
+const latest = new WeakMap<object, ReadoutProps>()
 // The frame clock's time in the sending phase, kept outside state: a tick that saves no state
 // must still count its time.
 const ticked = new WeakMap<object, number>()
@@ -44,19 +44,19 @@ function sendingSince(ticks: number, sentAt: number | undefined): number {
   return Math.max(ticks, sentAt ? Date.now() - sentAt : 0)
 }
 
-// The time since the request went out, in the slot's width: 4.1s, 12.8s.
+// The time since the request went out, in the readout's width: 4.1s, 12.8s.
 export function sendingText(ms: number, width: number): string {
   return `${(Math.floor(ms / SENDING_STEP_MS) / 10).toFixed(1)}s`.padStart(width)
 }
 
-const SlotModule: ClientModule<SlotProps, Slot> = (props, surface) => {
+const ReadoutModule: ClientModule<ReadoutProps, Readout> = (props, surface) => {
   const { Box, Text } = surface.elements
   latest.set(surface, props)
   const s = surface.state
   if (s === undefined) {
     surface.setState({ kind: props.kind, from: props.text, frame: Number.POSITIVE_INFINITY, sendingMs: 0 })
     // One timer for the instance's life, started on its first call. A tick sets state only when
-    // the slot changes: a scramble frame, or the sending time's next tenth.
+    // the readout changes: a scramble frame, or the sending time's next tenth.
     surface.every(props.frameMs, () => {
       const now = surface.state!
       const current = latest.get(surface)!
@@ -71,7 +71,7 @@ const SlotModule: ClientModule<SlotProps, Slot> = (props, surface) => {
       if (isScrambling || isNewTenth) surface.setState({ ...now, frame, sendingMs: elapsed })
     })
   } else if (s.kind !== props.kind) {
-    // A change during a scramble restarts it from what the slot shows.
+    // A change during a scramble restarts it from what the readout shows.
     ticked.set(surface, 0)
     surface.setState({ kind: props.kind, from: shown.get(surface) ?? props.text, frame: 0, sendingMs: 0 })
   }
@@ -89,4 +89,4 @@ const SlotModule: ClientModule<SlotProps, Slot> = (props, surface) => {
   )
 }
 
-export default SlotModule
+export default ReadoutModule

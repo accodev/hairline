@@ -3,8 +3,8 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { isScrambling, newSlot, newSpeed, sendingText, setSlotKind, slotText, speedDots, tickSlot, tickSpeed } from './anim.ts'
-import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, slotTarget, SPEED_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
+import { isScrambling, newReadout, newGraph, sendingText, setReadoutKind, readoutFrame, graphText, tickReadout, tickGraph } from './anim.ts'
+import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, readoutTarget, GRAPH_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
 const RATE_MIN_WINDOW_MS = 100 // the first chunks' rate, over at least this, so one chunk draws no spike
@@ -169,8 +169,8 @@ export default function hairline(pi: ExtensionAPI) {
   let extra: Extra | null = null
   let extraNextAt = 0
   let idleReadAt = 0
-  const slot = newSlot()
-  const speed = newSpeed(SPEED_CELLS)
+  const readout = newReadout()
+  const graph = newGraph(GRAPH_CELLS)
   let stream = { firstAt: 0, lastSample: 0, recent: [] as { at: number; chars: number }[], chars: 0 }
 
   const redraw = () => requestRender?.()
@@ -282,21 +282,21 @@ export default function hairline(pi: ExtensionAPI) {
 
   function setPhase(next: Phase): void {
     phase = next
-    setSlotKind(slot, next, slotTarget(next, tps, tools).text)
+    setReadoutKind(readout, next, readoutTarget(next, tps, tools).text)
     startTimer()
     redraw()
   }
 
-  const isAnimating = () => phase !== 'idle' || isScrambling(slot) || !speed.isSettled
+  const isAnimating = () => phase !== 'idle' || isScrambling(readout) || !graph.isSettled
 
-  // One timer drives the spinner, the scramble, the sending time and the dot line, and stops
+  // One timer drives the spinner, the scramble, the sending time and the graph, and stops
   // when all four are still.
   function startTimer(): void {
     if (timer || !requestRender) return
     const frameMs = Math.round(1000 / settings.frameRate)
     timer = setInterval(() => {
-      tickSlot(slot, slotTarget(phase, tps, tools).text.length)
-      tickSpeed(speed, frameMs, isStreaming ? tps : 0, phase === 'sending')
+      tickReadout(readout, readoutTarget(phase, tps, tools).text.length)
+      tickGraph(graph, frameMs, isStreaming ? tps : 0, phase === 'sending')
       redraw()
       if (!isAnimating() && timer) {
         clearInterval(timer)
@@ -346,7 +346,7 @@ export default function hairline(pi: ExtensionAPI) {
         },
         invalidate() {},
         render(width: number): string[] {
-          const target = slotTarget(phase, tps, tools)
+          const target = readoutTarget(phase, tps, tools)
           const text = phase === 'sending' ? sendingText(Date.now() - sentAt, target.text.length) : target.text
           const branch = footerData.getGitBranch()
           const models = pickableModels()
@@ -368,8 +368,8 @@ export default function hairline(pi: ExtensionAPI) {
             extra,
             phase,
             tools,
-            slot: slotText(slot, text),
-            dots: speedDots(speed, isStreaming, phase === 'sending'),
+            readout: readoutFrame(readout, text),
+            graph: graphText(graph, isStreaming, phase === 'sending'),
             isLit: isStreaming || phase === 'sending',
             hasNerdFont,
             open,
@@ -433,7 +433,7 @@ export default function hairline(pi: ExtensionAPI) {
   }
 
   async function act(action: string): Promise<void> {
-    if (action === 'tokens' || action === 'model' || action === 'effort') return setOpen(action)
+    if (action === 'ledger' || action === 'model' || action === 'effort') return setOpen(action)
     if (!ui) return
     if (action === 'id') return copySessionId(ui)
     const [kind, value] = action.split(':') as [string, string]
@@ -451,8 +451,8 @@ export default function hairline(pi: ExtensionAPI) {
   }
 
   pi.registerCommand('hairline', {
-    description: 'Show or hide the hairline token panel; in fullscreen mode, a click on the token count does too',
-    handler: async () => setOpen('tokens'),
+    description: 'Show or hide the hairline ledger; in fullscreen mode, a click on the token split does too',
+    handler: async () => setOpen('ledger'),
   })
 
   pi.registerCommand('hairline-fonts', {
@@ -490,7 +490,7 @@ export default function hairline(pi: ExtensionAPI) {
       void readExchange()
       void readExtra()
       readIdle()
-      if (open === 'tokens') redraw() // the cache countdown changes with no event
+      if (open === 'ledger') redraw() // the cache countdown changes with no event
     }, REFRESH_MS)
     refresh.unref?.()
   })

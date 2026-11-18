@@ -10,7 +10,7 @@ const HINT = {
 
 const SESSION_ID = '02c6e8dd-64d4-4f01-8f7f-3a43b20104a2'
 
-test('draws location, context, limits, model and a copyable session id', { options: { currency: 'USD' } }, async ($, on) => {
+test('draws workspace, context, limits, model and a copyable session id', { options: { currency: 'USD' } }, async ($, on) => {
   const clock = mock.clock(on)
   // Saved by an earlier load of the module in this session: it wins over the config row.
   const stats = { input: 80, write: 2_000_000, read: 8_300_000, output: 400_000, main: 1_600_000, sub: 800_080, turns: 40, activeMs: 2 * 3_600_000, costStart: 0.82 }
@@ -83,7 +83,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
     expect(await ui.find({ type: 'Text', text: surface === 'terminal' ? 'high' : 'xhigh' })).toBeDefined()
 
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
-    await ui.press({ key: 'hairline-tokens' })
+    await ui.press({ key: 'hairline-token-split' })
     expect((await ui.find({ type: 'Text', text: / \/ +400k$/ }))?.props.inverse).toBe(true)
     expect(await ui.find({ type: 'Text', text: /4[.,]82/ })).toBeDefined() // cost, in USD
     expect(await ui.find({ type: 'Text', text: /2[.,]00/ })).toBeDefined() // $4.00 since Hairline's first reading, over 2 active hours
@@ -97,7 +97,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined() // one panel at a time
     await ui.press({ key: 'hairline-model-sonnet' })
     expect(await ui.find({ key: 'hairline-model-haiku' })).toBeUndefined()
-    await ui.press({ key: 'hairline-tokens' })
+    await ui.press({ key: 'hairline-token-split' })
 
     await ui.press({ key: 'hairline-effort' })
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
@@ -196,7 +196,7 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { cu
 
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:/code/hairline' })
   const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
-  await ui.press({ key: 'hairline-tokens' })
+  await ui.press({ key: 'hairline-token-split' })
   expect(fetched).toEqual(['https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY'])
   expect(await ui.find({ type: 'Text', text: /66[.,]62/ })).toBeDefined() // 10 USD at 6.6616
   expect(await ui.find({ type: 'Text', text: / \/ +500$/ })).toBeDefined() // this session's 500 out, not the other's 99k
@@ -222,7 +222,7 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
 
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:/code/hairline' })
   const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
-  await ui.press({ key: 'hairline-tokens' })
+  await ui.press({ key: 'hairline-token-split' })
   expect(await ui.find({ type: 'Text', text: /^~.*9[.,]00/ })).toBeDefined() // 10 USD at the 0.9 setting
   await ui.unmount()
 })
@@ -336,9 +336,9 @@ test('draws the line in the desktop band above the prompt, under other mods and 
   expect(await desktop.find({ type: 'Text', text: 'hairline' })).toBeUndefined() // the app shows the folder already
   expect((await desktop.find({ type: 'Text', text: '○ ' }))?.props.mono).toBe(true)
   expect((await desktop.find({ type: 'Text', text: 'another mod' }))?.props.mono).toBeUndefined() // other mods keep their style
-  // The token count is a chip there: a click posts, and the hooks module opens the panel.
+  // The token split is a chip there: a click posts, and the hooks module opens the panel.
   expect(await desktop.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
-  await desktop.post({ press: true }, { in: 'hairline-tokens' })
+  await desktop.post({ press: true }, { in: 'hairline-token-split' })
   expect(await desktop.find({ type: 'Text', text: /^cost/ })).toBeDefined()
   // The pointer inverts the session ID chip, as it does a terminal Button.
   await desktop.pointer({ type: 'enter', x: 0, y: 0, in: 'hairline-session-id' })

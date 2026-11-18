@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
-import { frameText } from '../hooks/slot.tsx'
+import { frameText } from '../hooks/readout.tsx'
 
-test('the slot scrambles, then settles left to right', () => {
+test('the readout scrambles, then settles left to right', () => {
   const from = ' 224 t/s', to = '    idle'
   expect(frameText(from, to, 0)).not.toBe(to)
   expect(frameText(from, to, 0)).toHaveLength(8)
