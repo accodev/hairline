@@ -68,7 +68,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
     expect(await ui.find({ type: 'Text', text: ' 104k/200k' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '38%' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: / (\uf017 )?3d$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: ' / 400k' })).toBeDefined() // in, out, read and write: 80, 400k, 8.3M, 2M
+    expect(await ui.find({ type: 'Text', text: / \/ +400k$/ })).toBeDefined() // in, out, read and write: 80, 400k, 8.3M, 2M
     expect(await ui.find({ type: 'Text', text: ' write' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'opus 5.5' })).toBeDefined()
     const effort = await ui.find({ type: 'Text', text: surface === 'terminal' ? 'xhigh' : 'high' })
@@ -84,7 +84,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
 
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
     await ui.press({ key: 'hairline-tokens' })
-    expect((await ui.find({ type: 'Text', text: ' / 400k' }))?.props.inverse).toBe(true)
+    expect((await ui.find({ type: 'Text', text: / \/ +400k$/ }))?.props.inverse).toBe(true)
     expect(await ui.find({ type: 'Text', text: /4[.,]82/ })).toBeDefined() // cost, in USD
     expect(await ui.find({ type: 'Text', text: /2[.,]00/ })).toBeDefined() // $4.00 since Hairline's first reading, over 2 active hours
     expect(await ui.find({ type: 'Text', text: '2h' })).toBeDefined() // 2 active hours, no zero unit
@@ -169,8 +169,8 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { cu
   await ui.press({ key: 'hairline-tokens' })
   expect(fetched).toEqual(['https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY'])
   expect(await ui.find({ type: 'Text', text: /66[.,]62/ })).toBeDefined() // 10 USD at 6.6616
-  expect(await ui.find({ type: 'Text', text: ' / 500' })).toBeDefined() // this session's 500 out, not the other's 99k
-  expect(await ui.find({ type: 'Text', text: ' / 99k' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: / \/ +500$/ })).toBeDefined() // this session's 500 out, not the other's 99k
+  expect(await ui.find({ type: 'Text', text: / \/ +99k$/ })).toBeUndefined()
   await ui.unmount()
 })
 
