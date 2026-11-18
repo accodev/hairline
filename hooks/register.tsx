@@ -476,6 +476,23 @@ async function findRepo($: EngineInterface): Promise<Repo> {
   return { name: basename(cwd), worktree: null, head: null }
 }
 
+// The worktree and the branch cut to fit PLACE_WIDTH with the repository, the parentheses, the
+// separator and the glyphs. The longer name loses a cell first, so both stay readable.
+function cutPlace(folder: string, worktree: string | null, branch: string | null, hasGlyphs: boolean): { worktree: string; branch: string } {
+  const glyph = hasGlyphs ? 2 : 0
+  const fixed = folder.length + (worktree || branch ? 3 : 0) + (worktree && branch ? 3 : 0) + (worktree ? glyph : 0) + (branch ? glyph : 0)
+  const room = Math.max(0, PLACE_WIDTH - fixed)
+  let w = worktree?.length ?? 0
+  let b = branch?.length ?? 0
+  while (w + b > room) {
+    if (w >= b && w > 1) w--
+    else if (b > 1) b--
+    else break
+  }
+  const cut = (name: string | null, n: number) => (!name ? '' : name.length <= n ? name : `${name.slice(0, Math.max(0, n - 1))}…`)
+  return { worktree: cut(worktree, w), branch: cut(branch, b) }
+}
+
 // A linked worktree's git folder is <main checkout>/.git/worktrees/<id>, so the main checkout names
 // the repository. A submodule's is .git/modules/<name>, and it stays a repository of its own.
 function worktreeOf(gitDir: string, top: string): { name: string; worktree: string | null } {
@@ -620,6 +637,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const slotWidth = isDesktop ? SLOT_WIDTH : SLOT_WIDTH_WIDE
   const speedCells = SPEED_CELLS_WIDE
   const speedColumnWidth = TOKEN_ROW_WIDTH
+  const placeCut = cutPlace(folder, worktree, branch, hasNerdFont)
   const pct = context?.percent ?? null
   const now = Date.now()
 
@@ -908,16 +926,17 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     <Box flexDirection="column" width="100%">
       <Box flexDirection="row" width="100%" flexWrap="wrap">
         <Box flexDirection="column" width={PLACE_WIDTH} flexShrink={0} overflow="hidden" marginRight={3}>
-          <Box flexDirection="row" overflow="hidden">
-            <Box flexShrink={0}><Text color={c.folder}>{folder}</Text></Box>
+          {/* Cut here, to the cell: left to flex, the short pieces shrank to nothing and wrapped. */}
+          <Box flexDirection="row" height={1} overflow="hidden">
+            <Text color={c.folder}>{folder}</Text>
             {(worktree || branch) && <Text dimColor> (</Text>}
-            {worktree && <Text dimColor wrap="truncate-end">{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${worktree}`}</Text>}
+            {worktree && <Text dimColor>{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${placeCut.worktree}`}</Text>}
             {worktree && branch && <Text dimColor> · </Text>}
             {branch && hasNerdFont && <Text color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>}
-            {branch && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
+            {branch && <Text color={c.branch}>{placeCut.branch}</Text>}
             {(worktree || branch) && <Text dimColor>)</Text>}
           </Box>
-          <Box flexShrink={0}>
+          <Box flexShrink={0} height={1} overflow="hidden">
             {pct === null ? <Text dimColor>--%</Text> : <Text color={rampColor(c, pct, compactAt)}>{`${Math.round(pct)}%`}</Text>}
             <Text dimColor>{` ${context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`}`}</Text>
             {compactAt !== null && <Text dimColor>{` · compacts at ${Math.round(compactAt)}%`}</Text>}
