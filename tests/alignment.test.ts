@@ -62,7 +62,7 @@ test('the activity keeps its width in every phase', async ($, on) => {
   while (!(await stream.next()).done) {}
   await ui.advance(500)
   const tools = await line()
-  expect(tools).toContain('Agent ×3')
+  expect(tools).toContain('3 tools Agent')
 
   const lines = { idle, sending, receiving, tools }
   for (const [name, text] of Object.entries(lines)) console.log(`${name.padEnd(9)} ${text}`)

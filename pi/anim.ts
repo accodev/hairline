@@ -46,7 +46,6 @@ export function readoutFrame(s: Readout, target: string): string {
   return s.shown
 }
 
-const SHIFT_MS = 60
 const CELLS = 6
 const SAMPLES = CELLS * 2 // a braille cell holds 2 columns of 4 dots
 // Unicode added the bottom braille row last, so its bits (0x40, 0x80) break the order.
@@ -86,20 +85,18 @@ export function sweepBars(ms: number, samples = SAMPLES): number[] {
   return Array.from({ length: samples }, (_, i) => Math.max(0, 1 - Math.abs(i - at) / SWEEP_HALF_WIDTH))
 }
 
-export type Graph = { shown: number; bars: number[]; top: number; sinceShift: number; sweepMs: number; isSettled: boolean }
+export type Graph = { shown: number; bars: number[]; top: number; sweepMs: number; isSettled: boolean }
 
 // cells: the footer's columns pass a wider line than the 6 cells of the single row.
-export const newGraph = (cells = CELLS): Graph => ({ shown: 0, bars: Array(cells * 2).fill(0), top: 1, sinceShift: 0, sweepMs: 0, isSettled: true })
+export const newGraph = (cells = CELLS): Graph => ({ shown: 0, bars: Array(cells * 2).fill(0), top: 1, sweepMs: 0, isSettled: true })
 
 // target: the tokens per second while a reply streams, 0 otherwise.
 export function tickGraph(s: Graph, frameMs: number, target: number, isSweeping: boolean): void {
   if (s.isSettled && target === 0 && !isSweeping) return
   const ease = 1 - 0.88 ** (frameMs / 16) // 12% of the gap per 16 ms, whatever the frame interval
   s.shown += (target - s.shown) * ease
-  s.sinceShift += frameMs
-  const isShift = s.sinceShift >= SHIFT_MS
-  s.bars = isShift ? [...s.bars.slice(1), s.shown] : [...s.bars.slice(0, -1), s.shown]
-  if (isShift) s.sinceShift = 0
+  // A new sample every frame: at one each 60 ms the graph lagged the stream it drew.
+  s.bars = [...s.bars.slice(1), s.shown]
   // The scale freezes when the stream ends, so the falling samples drop on screen. The line runs
   // on until every sample has reached the bottom row.
   if (target > 0) s.top = Math.max(...s.bars, 1)
@@ -108,10 +105,24 @@ export function tickGraph(s: Graph, frameMs: number, target: number, isSweeping:
   if (s.isSettled) s.bars = s.bars.map(() => 0)
 }
 
+// Filled from the bottom, one cell per 2 samples: an area reads as a level at a glance, where a
+// thin line of dots read as noise.
+const AREA = '⣀⣤⣶⣿'
+export function areaLine(samples: number[], at: (v: number) => number): string {
+  return Array.from({ length: samples.length / 2 }, (_, cell) => AREA[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (AREA.length - 1))]!).join('')
+}
+
+// While a request is out the graph is a plain track, and breathSlot gives its color.
 export function graphText(s: Graph, isLive: boolean, isSweeping: boolean): string {
-  if (isSweeping) {
-    const samples = sweepBars(s.sweepMs, s.bars.length)
-    return dotLine(samples, scale(samples, 1, false))
-  }
-  return dotLine(s.bars, scale(s.bars, s.top, isLive))
+  if (isSweeping) return '─'.repeat(s.bars.length / 2)
+  return areaLine(s.bars, scale(s.bars, s.top, isLive))
+}
+
+// The breathing track: it fades through the palette slots darkest first and back, one breath
+// each BREATH_MS. No progress can be known, so nothing moves along it.
+const BREATH_MS = 1600
+export const BREATH = [8, 7, 4, 12] as const
+export function breathSlot(ms: number): number {
+  const phase = (ms % BREATH_MS) / BREATH_MS
+  return BREATH[Math.round(((1 - Math.cos(phase * 2 * Math.PI)) / 2) * (BREATH.length - 1))]!
 }

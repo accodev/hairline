@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { isScrambling, newReadout, newGraph, sendingText, setReadoutKind, readoutFrame, graphText, tickReadout, tickGraph } from './anim.ts'
+import { breathSlot, isScrambling, newReadout, newGraph, sendingText, setReadoutKind, readoutFrame, graphText, tickReadout, tickGraph } from './anim.ts'
 import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, readoutTarget, GRAPH_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
@@ -16,6 +16,7 @@ const FRAMES_MAX = 60
 const REFRESH_MS = 5_000
 const DEFAULT_RESERVE_TOKENS = 16_384 // Pi's compaction.reserveTokens default
 const CURRENCIES = ['USD', 'CAD', 'AUD', 'EUR', 'JPY', 'CNY'] as const
+const READOUT_EASE_MS = 400 // a figure redrawn faster than this flickers past reading
 const RATES_URL = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=' // European Central Bank rates, no key
 const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 // Anthropic sends the subscription limits as response headers; other providers send none.
@@ -150,6 +151,8 @@ export default function hairline(pi: ExtensionAPI) {
   let tools: Tool[] = []
   let sentAt = 0
   let tps = 0
+  let readoutTps = 0 // the figure the readout shows, eased every READOUT_EASE_MS
+  let lastReadout = 0
   let isStreaming = false
   let charsPerToken = 4 // the usual English ratio, until the first response measures it
   let hasNerdFont = false
@@ -282,7 +285,7 @@ export default function hairline(pi: ExtensionAPI) {
 
   function setPhase(next: Phase): void {
     phase = next
-    setReadoutKind(readout, next, readoutTarget(next, tps, tools).text)
+    setReadoutKind(readout, next, readoutTarget(next, readoutTps, tools).text)
     startTimer()
     redraw()
   }
@@ -295,7 +298,7 @@ export default function hairline(pi: ExtensionAPI) {
     if (timer || !requestRender) return
     const frameMs = Math.round(1000 / settings.frameRate)
     timer = setInterval(() => {
-      tickReadout(readout, readoutTarget(phase, tps, tools).text.length)
+      tickReadout(readout, readoutTarget(phase, readoutTps, tools).text.length)
       tickGraph(graph, frameMs, isStreaming ? tps : 0, phase === 'sending')
       redraw()
       if (!isAnimating() && timer) {
@@ -346,7 +349,7 @@ export default function hairline(pi: ExtensionAPI) {
         },
         invalidate() {},
         render(width: number): string[] {
-          const target = readoutTarget(phase, tps, tools)
+          const target = readoutTarget(phase, readoutTps, tools)
           const text = phase === 'sending' ? sendingText(Date.now() - sentAt, target.text.length) : target.text
           const branch = footerData.getGitBranch()
           const models = pickableModels()
@@ -370,6 +373,7 @@ export default function hairline(pi: ExtensionAPI) {
             tools,
             readout: readoutFrame(readout, text),
             graph: graphText(graph, isStreaming, phase === 'sending'),
+            breath: breathSlot(graph.sweepMs),
             isLit: isStreaming || phase === 'sending',
             hasNerdFont,
             open,
@@ -540,6 +544,11 @@ export default function hairline(pi: ExtensionAPI) {
       const windowSecs = Math.min(RATE_WINDOW_MS, Math.max(RATE_MIN_WINDOW_MS, now - stream.firstAt)) / 1000
       tps = Math.round(stream.recent.reduce((sum, r) => sum + r.chars, 0) / charsPerToken / windowSecs)
       stream.lastSample = now
+      // The graph takes every sample; the readout's figure eases at a pace the eye can read.
+      if (now - lastReadout >= READOUT_EASE_MS) {
+        readoutTps = readoutTps ? Math.round(readoutTps + (tps - readoutTps) / 2) : tps
+        lastReadout = now
+      }
       redraw()
     }
   })
@@ -553,6 +562,7 @@ export default function hairline(pi: ExtensionAPI) {
     }
     isStreaming = false
     tps = 0
+    readoutTps = 0
     stream.chars = 0
     lastRequestAt = Date.now()
     tools = m.content.flatMap(part => (part.type === 'toolCall' ? [{ name: toolName(part.name), arg: toolArg(part.arguments) }] : []))
@@ -569,6 +579,7 @@ export default function hairline(pi: ExtensionAPI) {
   pi.on('agent_settled', async (_e, c) => {
     isStreaming = false
     tps = 0
+    readoutTps = 0
     stats = sumUsage(c)
     readContext(c)
     if (run) {
