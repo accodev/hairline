@@ -141,7 +141,37 @@ test('a worktree shows the repository name, then the worktree and the branch', a
   expect(await ui.find({ type: 'Text', text: 'hairline' })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: /extra-usage$/ }))?.props.dimColor).toBe(true)
   expect(await ui.find({ type: 'Text', text: ' · ' })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: 'feat/x' }))?.props.wrap).toBe('truncate-end')
+  expect(await ui.find({ type: 'Text', text: 'feat/x' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('long worktree and branch names are cut to fit the first column on one row', async ($, on) => {
+  const clock = mock.clock(on)
+  const name = '1245_the-tills-fiscal-module-runs-as'
+  const top = `C:/code/market-it/.claude/worktrees/${name}`
+  const at = (path: string, end: string) => path.replace(/\\/g, '/').endsWith(end)
+  on('session.start', () => ({ cwd: top }))
+  on('session.cwd', () => ({ value: top }))
+  on('fs.stat', ($, e) => (at(e.path, `/${name}/.git`) ? { value: { kind: 'file', size: 60, mtimeMs: 0, isLink: false } } : { deny: 'ENOENT' }) as never)
+  on('fs.read', ($, e) => (
+    at(e.path, `/${name}/.git`) ? { value: `gitdir: C:/code/market-it/.git/worktrees/${name}\n` }
+      : at(e.path, `/.git/worktrees/${name}/HEAD`) ? { value: `ref: refs/heads/accodev/${name}\n` }
+        : { deny: 'ENOENT' }) as never)
+  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] } }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.id', () => ({ value: SESSION_ID }))
+  on('config.list', () => ({ value: [] }))
+  on('ui.render', ($, e) => ({ type: 'Text', props: {}, children: ['hint' in e.props ? e.props.hint : ''] }))
+
+  await $.session.start({ surface: 'terminal', isInteractive: true, cwd: top })
+  const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
+  await clock.settle()
+  const worktree = String((await ui.find({ type: 'Text', text: /^1245_.*…$/ }))?.children?.[0] ?? '')
+  const branch = String((await ui.find({ type: 'Text', text: /^accodev\/.*…$/ }))?.children?.[0] ?? '')
+  expect(worktree).toMatch(/…$/)
+  expect(branch).toMatch(/…$/)
+  // market-it, " (", the worktree, " · ", the branch, ")": within the column's 52 cells.
+  expect('market-it'.length + 2 + worktree.length + 3 + branch.length + 1).toBeLessThanOrEqual(52)
   await ui.unmount()
 })
 
