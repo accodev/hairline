@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { toolReadout } from '../hooks/register.tsx'
-import { sendingText } from '../hooks/readout.tsx'
-import { areaLine, breathColor, sweepBars } from '../hooks/graph.tsx'
+import { sendingText, waitingText } from '../hooks/readout.tsx'
+import { areaLine, scanCells, sweepBars } from '../hooks/graph.tsx'
 
 const WIDTH = 24
 
@@ -36,10 +36,18 @@ test('the sweep bump crosses the line and leaves it', () => {
   expect(sweepBars(600)).toHaveLength(12)
 })
 
-test('sending breathes the whole track; a stream fills the graph from the bottom', () => {
-  const breath = [{ color: 'ansi256(4)', dim: true }, { color: 'ansi256(4)', dim: false }, { color: 'ansi256(12)', dim: false }]
-  // One breath over 1900 ms: dim blue at its start, bright blue halfway.
-  expect(breathColor(0, breath)).toEqual({ color: 'ansi256(4)', dim: true })
-  expect(breathColor(950, breath)).toEqual({ color: 'ansi256(12)', dim: false })
+test('sending waits with a scan; a stream fills the graph from the bottom', () => {
+  // The dots grow every 400 ms; the time keeps the last 6 cells.
+  expect(waitingText(0, 18)).toBe('waiting.      0.0s')
+  expect(waitingText(4_160, 18)).toBe('waiting..     4.1s')
+  expect(waitingText(123_400, 18)).toBe('waiting...  123.4s')
+  expect(waitingText(4_160, 18)).toHaveLength(18)
+  // Too narrow for the word: the time alone, as the desktop band shows it.
+  expect(waitingText(4_160, 8)).toBe('    4.1s')
+  // A 6-cell head enters, crosses and leaves a 34-cell track in 1500 ms.
+  expect(scanCells(0, 34)).toEqual([0, 0, 34])
+  expect(scanCells(750, 34)).toEqual([14, 6, 14])
+  expect(scanCells(1_499, 34)).toEqual([33, 1, 0])
+  for (const ms of [0, 100, 750, 1_400]) expect(scanCells(ms, 34).reduce((a, b) => a + b)).toBe(34)
   expect(areaLine([0, 0, 0.5, 0.5, 1, 1], v => v)).toBe('⣀⣶⣿')
 })

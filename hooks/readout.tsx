@@ -49,6 +49,16 @@ export function sendingText(ms: number, width: number): string {
   return `${(Math.floor(ms / SENDING_STEP_MS) / 10).toFixed(1)}s`.padStart(width)
 }
 
+// The terminal's wider readout: "waiting" with 1 to 3 dots, one more each DOT_MS, then the time
+// in its last SECONDS_WIDTH cells: waiting..    4.1s.
+export const SECONDS_WIDTH = 6 // 123.4s
+const DOT_MS = 400
+const WAITING_MIN = 'waiting...'.length + SECONDS_WIDTH
+export function waitingText(ms: number, width: number): string {
+  if (width < WAITING_MIN) return sendingText(ms, width)
+  return `waiting${'.'.repeat(1 + (Math.floor(ms / DOT_MS) % 3))}`.padEnd(width - SECONDS_WIDTH) + sendingText(ms, SECONDS_WIDTH)
+}
+
 const ReadoutModule: ClientModule<ReadoutProps, Readout> = (props, surface) => {
   const { Box, Text } = surface.elements
   latest.set(surface, props)
@@ -77,10 +87,19 @@ const ReadoutModule: ClientModule<ReadoutProps, Readout> = (props, surface) => {
   }
   const isCurrent = s !== undefined && s.kind === props.kind
   const frame = s === undefined ? Number.POSITIVE_INFINITY : isCurrent ? s.frame : 0
-  const target = props.kind === SENDING ? sendingText(isCurrent ? s.sendingMs : 0, props.text.length) : props.text
+  const target = props.kind === SENDING ? waitingText(isCurrent ? s.sendingMs : 0, props.text.length) : props.text
   const text = frameText(isCurrent ? s.from : (shown.get(surface) ?? props.text), target, frame)
   shown.set(surface, text)
   const style = props.mono ? { mono: true, size: 'caption' as const } : {}
+  // The word is dim and the time is at full strength: the time is what changes.
+  if (props.kind === SENDING && text.length >= WAITING_MIN) {
+    return (
+      <Box>
+        <Text dimColor>{text.slice(0, -SECONDS_WIDTH)}</Text>
+        <Text>{text.slice(-SECONDS_WIDTH)}</Text>
+      </Box>
+    )
+  }
   return (
     <Box>
       {props.bright > 0 && <Text {...style}>{text.slice(0, props.bright)}</Text>}

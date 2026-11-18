@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { breathSlot, isScrambling, newReadout, newGraph, sendingText, setReadoutKind, readoutFrame, graphText, tickReadout, tickGraph } from './anim.ts'
+import { isScrambling, newReadout, newGraph, waitingText, setReadoutKind, readoutFrame, graphText, tickReadout, tickGraph } from './anim.ts'
 import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, readoutTarget, GRAPH_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
@@ -350,7 +350,7 @@ export default function hairline(pi: ExtensionAPI) {
         invalidate() {},
         render(width: number): string[] {
           const target = readoutTarget(phase, readoutTps, tools)
-          const text = phase === 'sending' ? sendingText(Date.now() - sentAt, target.text.length) : target.text
+          const text = phase === 'sending' ? waitingText(Date.now() - sentAt, target.text.length) : target.text
           const branch = footerData.getGitBranch()
           const models = pickableModels()
           const drawn = drawFooter({
@@ -373,7 +373,7 @@ export default function hairline(pi: ExtensionAPI) {
             tools,
             readout: readoutFrame(readout, text),
             graph: graphText(graph, isStreaming, phase === 'sending'),
-            breath: breathSlot(graph.sweepMs),
+            sweepMs: graph.sweepMs,
             isLit: isStreaming || phase === 'sending',
             hasNerdFont,
             open,

@@ -40,6 +40,8 @@ const READOUT_WIDTH = TPS_WIDTH + ' t/s'.length
 const TOOL_WIDTH = READOUT_WIDTH + 1 + 6
 // The terminal's columns give the readout and the graph more room than the desktop band has.
 export const READOUT_WIDTH_WIDE = 12
+// The sending time's cells after "waiting...", as readout.tsx draws them: 123.4s.
+const SECONDS_WIDTH = 6
 // The widest count human() prints: 999.99M, 112.46B. At 6 cells, 112.46M wrapped the row.
 // The padded token row: 4 counts, each a space and its unit, joined by 3 " / ".
 export const COUNT_WIDTH = 7
@@ -65,20 +67,15 @@ const EXTRA_RETRY_MS = 600_000
 // Claude Code theme keys, which follow the light or dark theme.
 type Palette = {
   ok: string; warn: string; bad: string; folder: string; branch: string; track: string; marker: string
-  // The sending track's steps, darkest first: one blue, dim, plain and bright, as near as 16 palette
-  // slots come to the mockup's fade of one blue between 35% and 70% opacity.
-  breath: readonly { color: string; dim: boolean }[]
   effort: readonly string[]; ramp: readonly string[]
 }
 const TERMINAL_PALETTE: Palette = {
   ok: 'ansi256(2)', warn: 'ansi256(3)', bad: 'ansi256(1)', folder: 'ansi256(4)', branch: 'ansi256(5)', track: 'ansi256(8)', marker: 'ansi256(15)',
-  breath: [{ color: 'ansi256(4)', dim: true }, { color: 'ansi256(4)', dim: false }, { color: 'ansi256(12)', dim: false }],
   effort: ['ansi256(4)', 'ansi256(5)', 'ansi256(13)', 'ansi256(1)', 'ansi256(9)'],
   ramp: ['ansi256(10)', 'ansi256(2)', 'ansi256(11)', 'ansi256(3)', 'ansi256(1)', 'ansi256(9)'],
 }
 const THEME_PALETTE: Palette = {
   ok: 'success', warn: 'warning', bad: 'error', folder: 'suggestion', branch: 'merged', track: 'subtle', marker: 'text',
-  breath: [{ color: 'suggestion', dim: true }, { color: 'suggestion', dim: false }, { color: 'suggestion', dim: false }],
   effort: ['suggestion', 'merged', 'warning', 'error', 'error'],
   ramp: ['success', 'success', 'warning', 'warning', 'error', 'error'],
 }
@@ -649,7 +646,10 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   // The number and " t/s" while a reply streams, the phase's word otherwise: readoutWidth cells either
   // way. A running tool fills the readout and the graph's cells too; readout.tsx counts the sending time.
   const tool = toolReadout(session.tools, isDesktop ? TOOL_WIDTH : readoutWidth + 1 + graphCells)
-  const readoutText = session.phase === 'receiving'
+  // Sending in the terminal: the readout takes the graph's first SECONDS_WIDTH cells for the time
+  // after "waiting...", and the scan runs in the rest.
+  const isWaitingWide = !isDesktop && session.phase === 'sending'
+  const readoutText = isWaitingWide ? ' '.repeat(readoutWidth + SECONDS_WIDTH) : session.phase === 'receiving'
     ? `${pad(String(Math.min(TPS_MAX, session.readoutTps)), readoutWidth - 4)} t/s`
     : session.phase === 'tool' ? tool.text : pad(PHASE_WORDS[session.phase], readoutWidth)
   const isToolShown = session.phase === 'tool'
@@ -808,7 +808,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       ) : <Text dimColor>{pad(PHASE_WORDS[session.phase], readoutWidth)}</Text>}
       {Client && !isToolShown && <Text> </Text>}
       {Client && !isToolShown && (
-        <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop, ...(isDesktop ? {} : { cells: graphCells, breath: [...c.breath] }) }} />
+        <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop, ...(isDesktop ? {} : { cells: isWaitingWide ? graphCells - SECONDS_WIDTH : graphCells, scan: true }) }} />
       )}
     </Box>
   )
