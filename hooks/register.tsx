@@ -751,128 +751,180 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     )
   }
 
-  const line = (
-    <Box flexDirection="column">
-      {/* One wrapping row of whole chunks: a narrow terminal moves a chunk to the next row and never
-          wraps the text inside one. Only the location shrinks, cut with an ellipsis. */}
+  // The pieces both layouts share. Built once per draw, each goes into one layout only.
+  const speedBody = (
+    <Box flexShrink={0}>
+      {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
+      {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
+      {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
+      {Client ? (
+        <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
+      ) : isToolShown ? <Text dimColor>{speedSlot}</Text> : session.phase === 'receiving' ? (
+        <Box>
+          <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), TPS_WIDTH)}</Text>
+          <Text dimColor> t/s</Text>
+        </Box>
+      ) : <Text dimColor>{slot(PHASE_WORDS[session.phase], SLOT_WIDTH)}</Text>}
+      {Client && !isToolShown && <Text> </Text>}
+      {Client && !isToolShown && (
+        <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
+      )}
+    </Box>
+  )
+
+  // One target for the four figures: each is 3 to 5 cells, too small to aim at alone.
+  const tokenFigures = tokens === 0 ? <Text dimColor>--- tok</Text> : isDesktop && Client ? (
+    <Box>
+      <Client key="hairline-tokens" module="./chip.tsx" props={{ text: tokenSplit.map(([n, unit]) => `${n} ${unit}`).join(' / '), inverse: open === 'tokens' }} />
+    </Box>
+  ) : (
+    <Button key="hairline-tokens" label="tokens" plain onPress={() => toggle($, 'tokens')}>
+      {tokenSplit.flatMap(([n, unit], i) => [
+        <Text key={`n${i}`} inverse={open === 'tokens'}>{`${i ? ' / ' : ''}${n}`}</Text>,
+        <Text key={`u${i}`} inverse={open === 'tokens'} dimColor>{` ${unit}`}</Text>,
+      ])}
+    </Button>
+  )
+
+  const modelEffort = model && !isDesktop && (
+    <Box flexShrink={0}>
+      {modelRow ? (
+        <Button
+          key="hairline-model"
+          label={modelLabel(model)}
+          plain
+          onPress={async () => {
+            await $.config.list().then(readRows, () => {})
+            toggle($, 'model')
+          }}
+        >
+          <Text inverse={open === 'model'}>{modelLabel(model)}</Text>
+        </Button>
+      ) : <Text>{modelLabel(model)}</Text>}
+      {effort && (
+        <Box>
+          <Text> </Text>
+          <Button
+            key="hairline-effort"
+            label={effort}
+            plain
+            onPress={async () => {
+              await $.config.list().then(readRows, () => {})
+              toggle($, 'effort')
+            }}
+          >
+            <Text inverse={open === 'effort'} color={c.effort[EFFORT_LEVELS.indexOf(effort)]} dimColor={!EFFORT_LEVELS.includes(effort)}>{effort}</Text>
+          </Button>
+        </Box>
+      )}
+    </Box>
+  )
+
+  const sessionIdControl = sessionId && (isDesktop && Client ? (
+    <Client key="hairline-session-id" module="./chip.tsx" props={{ text: sessionId.slice(0, 8), color: c.track, dim: true }} />
+  ) : (
+    <Button
+      key="hairline-session-id"
+      label={sessionId.slice(0, 8)}
+      plain
+      onPress={press => copySessionId($, press.surface)}
+    >
+      <Text color={c.track} dimColor>{sessionId.slice(0, 8)}</Text>
+    </Button>
+  ))
+
+  // The desktop app's band: one wrapping row of whole chunks, as before the columns. A narrow band
+  // moves a chunk to the next row and never wraps the text inside one.
+  const desktopLine = (
+    <Box flexDirection="row" width="100%" flexWrap="wrap">
+      <Box flexDirection="row" flexShrink={0}>
+        {contextBar}
+        {pct === null
+          ? <Text dimColor>{` ${slot('--%', PCT_WIDTH)}`}</Text>
+          : <Text color={rampColor(c, pct, compactAt)}>{` ${slot(`${Math.round(pct)}%`, PCT_WIDTH)}`}</Text>}
+        <Text dimColor>{` ${slot(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`}</Text>
+      </Box>
+      <Box flexShrink={0}><Sep />{speedBody}</Box>
+      <Box flexShrink={0}><Sep />{tokenFigures}</Box>
+      {windows}
+      {extraSpend}
+      <Box flexDirection="row" flexShrink={0} paddingLeft={2} flexGrow={1} justifyContent="flex-end">
+        {sessionIdControl}
+      </Box>
+    </Box>
+  )
+
+  // The terminal: four columns over two rows, each column a pair read top to bottom, then the
+  // context bar across the whole terminal. With a cell per column, the bar is the finest it can be.
+  const limitCell = (kind: string, label: string) => {
+    const w = rateLimits.find(l => l.kind === kind)
+    if (!w) return <Text> </Text>
+    return (
+      <Box flexShrink={0}>
+        <Text dimColor>{`${label} `}</Text>
+        <Percent value={w.percentUsed} />
+        {w.resetsAt && <Text dimColor>{` ${!isDesktop && hasNerdFont ? `${NERD_GLYPHS.reset} ` : ''}${untilReset(w.resetsAt)}`}</Text>}
+      </Box>
+    )
+  }
+  const ruleCells = Math.max(BAR_CELLS, e.viewport?.columns ?? 0)
+  const ruleFilled = pct === null ? 0 : Math.round((Math.min(pct, 100) / 100) * ruleCells)
+  // In the last cell the marker would only repeat the rule's own end, so it hides there.
+  const ruleMarker = compactAt === null ? -1 : Math.min(ruleCells, Math.floor((compactAt / 100) * ruleCells))
+  // Runs of one glyph in one color share a Text: a cell each would be some 200 elements.
+  const ruleRuns: { glyph: string; color: string; text: string }[] = []
+  for (let i = 0; i < ruleCells; i++) {
+    const isFilled = i < ruleFilled
+    const ramp = rampColor(c, ((i + 0.5) / ruleCells) * 100, compactAt)
+    const isMarker = i === ruleMarker && i < ruleCells - 1
+    const glyph = isMarker ? '┃' : isFilled ? '━' : '─'
+    const color = isMarker ? (isFilled ? ramp : c.marker) : isFilled ? ramp : c.track
+    const last = ruleRuns[ruleRuns.length - 1]
+    if (last && last.glyph === glyph && last.color === color) last.text += glyph
+    else ruleRuns.push({ glyph, color, text: glyph })
+  }
+  const terminalLine = (
+    <Box flexDirection="column" width="100%">
       <Box flexDirection="row" width="100%" flexWrap="wrap">
-          {!isDesktop && (
-            <Box flexDirection="row" flexShrink={1} overflow="hidden">
-              <Text color={c.folder} wrap="truncate-end">{folder}</Text>
-              {/* Folded to [+] by default, so a long branch or worktree name leaves the figures their room. */}
-              {(worktree || branch) && isLocationOpen && <Text dimColor> (</Text>}
-              {worktree && isLocationOpen && <Text dimColor wrap="truncate-end">{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${worktree}`}</Text>}
-              {worktree && branch && isLocationOpen && <Text dimColor> · </Text>}
-              {branch && hasNerdFont && isLocationOpen && <Text color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>}
-              {branch && isLocationOpen && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
-              {(worktree || branch) && isLocationOpen && <Text dimColor>)</Text>}
-              {/* Only the mark is the control: the pointer inverts a Button, and the names stay plain under it. */}
-              {(worktree || branch) && <Text> </Text>}
-              {(worktree || branch) && (
-                <Button key="hairline-location" label={isLocationOpen ? 'hide worktree and branch' : 'show worktree and branch'} plain onPress={() => toggleLocation($)}>
-                  <Text dimColor>{isLocationOpen ? '[-]' : '[+]'}</Text>
-                </Button>
-              )}
-            </Box>
-          )}
-          <Box flexDirection="row" flexShrink={0}>
-          {!isDesktop && <Text>  </Text>}
-          {contextBar}
-          {pct === null
-            ? <Text dimColor>{` ${slot('--%', PCT_WIDTH)}`}</Text>
-            : <Text color={rampColor(c, pct, compactAt)}>{` ${slot(`${Math.round(pct)}%`, PCT_WIDTH)}`}</Text>}
-          <Text dimColor>{` ${slot(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`}</Text>
+        <Box flexDirection="column" flexShrink={1} overflow="hidden" marginRight={3}>
+          <Box flexDirection="row" overflow="hidden">
+            <Text color={c.folder} wrap="truncate-end">{folder}</Text>
+            {(worktree || branch) && <Text dimColor> (</Text>}
+            {worktree && <Text dimColor wrap="truncate-end">{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${worktree}`}</Text>}
+            {worktree && branch && <Text dimColor> · </Text>}
+            {branch && hasNerdFont && <Text color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>}
+            {branch && <Text color={c.branch} wrap="truncate-end">{branch}</Text>}
+            {(worktree || branch) && <Text dimColor>)</Text>}
           </Box>
           <Box flexShrink={0}>
-            <Sep />
-            {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
-            {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
-            {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
-            {Client ? (
-              <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? TPS_WIDTH : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
-            ) : isToolShown ? <Text dimColor>{speedSlot}</Text> : session.phase === 'receiving' ? (
-              <Box>
-                <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), TPS_WIDTH)}</Text>
-                <Text dimColor> t/s</Text>
-              </Box>
-            ) : <Text dimColor>{slot(PHASE_WORDS[session.phase], SLOT_WIDTH)}</Text>}
-            {Client && !isToolShown && <Text> </Text>}
-            {Client && !isToolShown && (
-              <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop }} />
-            )}
+            {pct === null ? <Text dimColor>--%</Text> : <Text color={rampColor(c, pct, compactAt)}>{`${Math.round(pct)}%`}</Text>}
+            <Text dimColor>{` ${context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`}`}</Text>
+            {compactAt !== null && <Text dimColor>{` · compacts at ${Math.round(compactAt)}%`}</Text>}
           </Box>
-          <Box flexShrink={0}>
-          <Sep />
-          {tokens === 0 ? <Text dimColor>--- tok</Text> : (
-            <Box>
-              {isDesktop && Client ? (
-                <Box>
-                <Client key="hairline-tokens" module="./chip.tsx" props={{ text: tokenSplit.map(([n, unit]) => `${n} ${unit}`).join(' · '), inverse: open === 'tokens' }} />
-                </Box>
-              ) : (
-                <Box>
-                  <Button key="hairline-tokens" label="tokens" plain onPress={() => toggle($, 'tokens')}>
-                    {tokenSplit.flatMap(([n, unit], i) => [
-                      <Text key={`n${i}`} inverse={open === 'tokens'}>{`${i ? ' · ' : ''}${n}`}</Text>,
-                      <Text key={`u${i}`} inverse={open === 'tokens'} dimColor>{` ${unit}`}</Text>,
-                    ])}
-                  </Button>
-                </Box>
-              )}
-            </Box>
-          )}
-          </Box>
-          {windows}
-          {extraSpend}
-        <Box flexDirection="row" flexShrink={0} paddingLeft={2} flexGrow={1} justifyContent="flex-end">
-          {model && !isDesktop && (modelRow ? (
-            <Button
-              key="hairline-model"
-              label={modelLabel(model)}
-              plain
-              onPress={async () => {
-                await $.config.list().then(readRows, () => {})
-                toggle($, 'model')
-              }}
-            >
-              <Text inverse={open === 'model'}>{modelLabel(model)}</Text>
-            </Button>
-          ) : <Text>{modelLabel(model)}</Text>)}
-          {model && effort && !isDesktop && (
-            <Box>
-              <Text> </Text>
-              <Button
-                key="hairline-effort"
-                label={effort}
-                plain
-                onPress={async () => {
-                  await $.config.list().then(readRows, () => {})
-                  toggle($, 'effort')
-                }}
-              >
-                <Text inverse={open === 'effort'} color={c.effort[EFFORT_LEVELS.indexOf(effort)]} dimColor={!EFFORT_LEVELS.includes(effort)}>{effort}</Text>
-              </Button>
-            </Box>
-          )}
-          {sessionId && (
-            <Box>
-              {model && !isDesktop && <Sep />}
-              {isDesktop && Client ? (
-                <Client key="hairline-session-id" module="./chip.tsx" props={{ text: sessionId.slice(0, 8), color: c.track, dim: true }} />
-              ) : (
-                <Button
-                  key="hairline-session-id"
-                  label={sessionId.slice(0, 8)}
-                  plain
-                  onPress={press => copySessionId($, press.surface)}
-                >
-                  <Text color={c.track} dimColor>{sessionId.slice(0, 8)}</Text>
-                </Button>
-              )}
-            </Box>
-          )}
+        </Box>
+        <Box flexDirection="column" flexShrink={0} marginRight={3}>
+          {speedBody}
+          <Box flexShrink={0}>{tokenFigures}</Box>
+        </Box>
+        <Box flexDirection="column" flexShrink={0} marginRight={3}>
+          {limitCell('five_hour', '5h')}
+          <Box flexShrink={0}>{limitCell('seven_day', '7d')}{extraSpend}</Box>
+        </Box>
+        <Box flexGrow={1} />
+        <Box flexDirection="column" flexShrink={0} alignItems="flex-end">
+          {modelEffort || <Text> </Text>}
+          {sessionIdControl || <Text> </Text>}
         </Box>
       </Box>
+      <Box width="100%" overflow="hidden">
+        {ruleRuns.map((run, i) => <Text key={`rule-${i}`} color={run.color}>{run.text}</Text>)}
+      </Box>
+    </Box>
+  )
+
+  const line = (
+    <Box flexDirection="column">
+      {isDesktop ? desktopLine : terminalLine}
       {open === 'model' && modelRow && (
         <Box flexDirection="row" justifyContent="flex-end" width="100%" flexWrap="wrap">
           <Text dimColor>model </Text>

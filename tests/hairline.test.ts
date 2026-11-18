@@ -58,17 +58,17 @@ test('draws location, context, limits, model and a copyable session id', { optio
     await clock.settle() // the first render outside the desktop app reads the folder and branch
     expect(await ui.find({ type: 'Text', text: '? for shortcuts' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'market-it' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '[+]' })).toBeDefined() // the branch stays folded until a click
-    expect(await ui.find({ type: 'Text', text: '  52%' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined() // the second row leaves the branch room
+    expect(await ui.find({ type: 'Text', text: '52%' })).toBeDefined()
     if (surface === 'terminal') {
-      // 80% of 16 cells: the marker sits in cell 12, past the 8 filled cells.
+      // The rule spans the 160 columns: the marker sits at 80%, column 128, past the 83 filled ones.
       const marker = await ui.find({ type: 'Text', text: '┃' })
       expect(marker?.props.color).toBe('ansi256(15)')
     }
     expect(await ui.find({ type: 'Text', text: ' 104k/200k' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '38%' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: / (\uf017 |resets )3d$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: ' · 400k' })).toBeDefined() // in, out, read and write: 80, 400k, 8.3M, 2M
+    expect(await ui.find({ type: 'Text', text: / (\uf017 )?3d$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' / 400k' })).toBeDefined() // in, out, read and write: 80, 400k, 8.3M, 2M
     expect(await ui.find({ type: 'Text', text: ' write' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'opus 5.5' })).toBeDefined()
     const effort = await ui.find({ type: 'Text', text: surface === 'terminal' ? 'xhigh' : 'high' })
@@ -84,7 +84,7 @@ test('draws location, context, limits, model and a copyable session id', { optio
 
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
     await ui.press({ key: 'hairline-tokens' })
-    expect((await ui.find({ type: 'Text', text: ' · 400k' }))?.props.inverse).toBe(true)
+    expect((await ui.find({ type: 'Text', text: ' / 400k' }))?.props.inverse).toBe(true)
     expect(await ui.find({ type: 'Text', text: /4[.,]82/ })).toBeDefined() // cost, in USD
     expect(await ui.find({ type: 'Text', text: /2[.,]00/ })).toBeDefined() // $4.00 since Hairline's first reading, over 2 active hours
     expect(await ui.find({ type: 'Text', text: '2h' })).toBeDefined() // 2 active hours, no zero unit
@@ -139,13 +139,9 @@ test('a worktree shows the repository name, then the worktree and the branch', a
   const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
   await clock.settle()
   expect(await ui.find({ type: 'Text', text: 'hairline' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'feat/x' })).toBeUndefined() // folded to [+] until a click
-  await ui.press({ key: 'hairline-location' })
   expect((await ui.find({ type: 'Text', text: /extra-usage$/ }))?.props.dimColor).toBe(true)
   expect(await ui.find({ type: 'Text', text: ' · ' })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: 'feat/x' }))?.props.wrap).toBe('truncate-end')
-  await ui.press({ key: 'hairline-location' })
-  expect(await ui.find({ type: 'Text', text: '[+]' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -173,8 +169,8 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { cu
   await ui.press({ key: 'hairline-tokens' })
   expect(fetched).toEqual(['https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY'])
   expect(await ui.find({ type: 'Text', text: /66[.,]62/ })).toBeDefined() // 10 USD at 6.6616
-  expect(await ui.find({ type: 'Text', text: ' · 500' })).toBeDefined() // this session's 500 out, not the other's 99k
-  expect(await ui.find({ type: 'Text', text: ' · 99k' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: ' / 500' })).toBeDefined() // this session's 500 out, not the other's 99k
+  expect(await ui.find({ type: 'Text', text: ' / 99k' })).toBeUndefined()
   await ui.unmount()
 })
 
