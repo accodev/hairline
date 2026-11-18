@@ -1,4 +1,4 @@
-// The speed slot's scramble and the dot line, as in hooks/slot.tsx and hooks/speed.tsx. Pi has no
+// The readout's scramble and the graph, as in hooks/readout.tsx and hooks/graph.tsx. Pi has no
 // Client modules, so the footer's own timer calls tick() and redraws the line.
 
 // When the phase changes, every cell that held or will hold a character shows random ones, then
@@ -17,31 +17,31 @@ export function frameText(from: string, to: string, frame: number): string {
   }).join('')
 }
 
-// The time since the request went out, in the slot's width: 4.1s, 12.8s.
+// The time since the request went out, in the readout's width: 4.1s, 12.8s.
 export function sendingText(ms: number, width: number): string {
   return `${(Math.floor(ms / SENDING_STEP_MS) / 10).toFixed(1)}s`.padStart(width)
 }
 
-export type Slot = { kind: string; from: string; frame: number; shown: string }
+export type Readout = { kind: string; from: string; frame: number; shown: string }
 
-export const newSlot = (): Slot => ({ kind: 'idle', from: '', frame: Number.POSITIVE_INFINITY, shown: '' })
+export const newReadout = (): Readout => ({ kind: 'idle', from: '', frame: Number.POSITIVE_INFINITY, shown: '' })
 
-// A change of kind scrambles from what the slot shows; a change of text alone does not.
-export function setSlotKind(s: Slot, kind: string, text: string): void {
+// A change of kind scrambles from what the readout shows; a change of text alone does not.
+export function setReadoutKind(s: Readout, kind: string, text: string): void {
   if (s.kind === kind) return
   s.from = s.shown || text
   s.kind = kind
   s.frame = 0
 }
 
-export function tickSlot(s: Slot, width: number): void {
+export function tickReadout(s: Readout, width: number): void {
   if (!Number.isFinite(s.frame)) return
   s.frame = s.frame + 1 >= SETTLE_AT + width ? Number.POSITIVE_INFINITY : s.frame + 1
 }
 
-export const isScrambling = (s: Slot) => Number.isFinite(s.frame)
+export const isScrambling = (s: Readout) => Number.isFinite(s.frame)
 
-export function slotText(s: Slot, target: string): string {
+export function readoutFrame(s: Readout, target: string): string {
   s.shown = frameText(s.from, target, s.frame)
   return s.shown
 }
@@ -86,13 +86,13 @@ export function sweepBars(ms: number, samples = SAMPLES): number[] {
   return Array.from({ length: samples }, (_, i) => Math.max(0, 1 - Math.abs(i - at) / SWEEP_HALF_WIDTH))
 }
 
-export type Speed = { shown: number; bars: number[]; top: number; sinceShift: number; sweepMs: number; isSettled: boolean }
+export type Graph = { shown: number; bars: number[]; top: number; sinceShift: number; sweepMs: number; isSettled: boolean }
 
 // cells: the footer's columns pass a wider line than the 6 cells of the single row.
-export const newSpeed = (cells = CELLS): Speed => ({ shown: 0, bars: Array(cells * 2).fill(0), top: 1, sinceShift: 0, sweepMs: 0, isSettled: true })
+export const newGraph = (cells = CELLS): Graph => ({ shown: 0, bars: Array(cells * 2).fill(0), top: 1, sinceShift: 0, sweepMs: 0, isSettled: true })
 
 // target: the tokens per second while a reply streams, 0 otherwise.
-export function tickSpeed(s: Speed, frameMs: number, target: number, isSweeping: boolean): void {
+export function tickGraph(s: Graph, frameMs: number, target: number, isSweeping: boolean): void {
   if (s.isSettled && target === 0 && !isSweeping) return
   const ease = 1 - 0.88 ** (frameMs / 16) // 12% of the gap per 16 ms, whatever the frame interval
   s.shown += (target - s.shown) * ease
@@ -108,7 +108,7 @@ export function tickSpeed(s: Speed, frameMs: number, target: number, isSweeping:
   if (s.isSettled) s.bars = s.bars.map(() => 0)
 }
 
-export function speedDots(s: Speed, isLive: boolean, isSweeping: boolean): string {
+export function graphText(s: Graph, isLive: boolean, isSweeping: boolean): string {
   if (isSweeping) {
     const samples = sweepBars(s.sweepMs, s.bars.length)
     return dotLine(samples, scale(samples, 1, false))

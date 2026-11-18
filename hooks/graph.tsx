@@ -45,7 +45,7 @@ function blocks(samples: number[], at: (v: number) => number): string[] {
 
 // sweep: a request is out and nothing has come back. No progress of it can be known, so a bump
 // runs across the line, one pass each SWEEP_MS, to show that the wait goes on.
-export type SpeedProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number }
+export type GraphProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number }
 type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean; sweepMs?: number }
 
 const SWEEP_MS = 1200
@@ -70,7 +70,7 @@ function fit(bars: number[], length: number): number[] {
   return bars.length >= length ? bars.slice(bars.length - length) : [...Array(length - bars.length).fill(0), ...bars]
 }
 
-const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
+const Graph: ClientModule<GraphProps, Anim> = (props, surface) => {
   const { Box, Text } = surface.elements
   targets.set(surface, props.live ? props.rate : 0)
   sweeps.set(surface, !!props.sweep)
@@ -119,4 +119,4 @@ const Speed: ClientModule<SpeedProps, Anim> = (props, surface) => {
     : <Text color={props.color} dimColor={!isLit}>{dotLine(samples, at)}</Text>
 }
 
-export default Speed
+export default Graph

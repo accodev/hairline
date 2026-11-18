@@ -69,7 +69,7 @@ test('screenshots', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on
   on('ui.render', ($, e) => ({ type: 'Text', props: {}, children: ['hint' in e.props ? e.props.hint : ''] }))
 
   // A reply at a fixed pace on the mock clock: 50 ms apart, 30 to 54 characters each, so the
-  // speed and the dot line come out the same on every run.
+  // speed and the graph come out the same on every run.
   on('turn.step', async function* () {
     for (let i = 0; i < 60; i++) {
       await clock.advance(50)
@@ -90,11 +90,11 @@ test('screenshots', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on
     if (++chunks === 48) await shoot('streaming')
   }
   await $.turn.complete({ turnId: 'screenshots', answer: '', durationMs: 3_000, isAborted: false, reason: 'answer' })
-  await ui.advance(3_000) // the dot line falls back once the reply ends
+  await ui.advance(3_000) // the graph falls back once the reply ends
   await shoot('line')
-  await ui.press({ key: 'hairline-tokens' })
-  await shoot('token-panel')
-  await ui.press({ key: 'hairline-tokens' })
+  await ui.press({ key: 'hairline-token-split' })
+  await shoot('ledger')
+  await ui.press({ key: 'hairline-token-split' })
   await ui.press({ key: 'hairline-effort' })
   await shoot('effort-picker')
   await ui.unmount()

@@ -6,6 +6,24 @@ Hairline does the same in every agent it supports: Claude Code (`hooks/`) and Pi
 
 The Claude desktop app never asks for `PromptHint`, so hairline draws there in `AbovePrompt`. `drawLine` serves both; `monospace` restyles hairline's text for the app.
 
+## Names
+
+One name for each area of the line, the same in code, comments, tests, PRs and talk, in both agents.
+
+| Name | The area |
+|---|---|
+| workspace | the repository, the worktree and the branch, top left |
+| context | the context use under it: percent, size, the auto-compact point |
+| context bar | the bar under the two rows, across the terminal |
+| activity | the row of the phase glyph, the readout and the graph |
+| readout | the activity's text: the seconds, the tokens per second, the running tool |
+| graph | the activity's braille chart |
+| token split | `in / out / read / write` under the activity |
+| limits | 5h over 7d, and the extra usage spend once a window is full |
+| model | the model and the effort over the session ID |
+| ledger | the rows a click on the token split opens: cost, tokens, turns, limits |
+| picker | the rows a click on the model or the effort opens |
+
 ## Check
 
 ```sh
@@ -17,7 +35,7 @@ CI runs both on Claude Code 2.1.312 (Node 22). `main` requires the `check` statu
 
 ## Hooks
 
-- `hooks/hooks.json` loads `hooks/register.tsx` only. `hooks/speed.tsx`, `hooks/spinner.tsx` and `hooks/chip.tsx` are Client modules. Keep them out of `hooks.json`.
+- `hooks/hooks.json` loads `hooks/register.tsx` only. `hooks/readout.tsx`, `hooks/graph.tsx`, `hooks/spinner.tsx` and `hooks/chip.tsx` are Client modules. Keep them out of `hooks.json`.
 - The desktop app draws a `Button` as a native control in its own font. `chip.tsx` stands in for one there and posts clicks to `ui.message`.
 - Register each event once, or each time with its own matcher. A second `on` of the same event without one throws.
 - Spell `on`, `$`, `$.env` and `$.state` literally. Pass `$` only to module-level functions.
@@ -29,7 +47,7 @@ CI runs both on Claude Code 2.1.312 (Node 22). `main` requires the `check` statu
 ## Pi
 
 - `pi/index.ts` is the Pi extension, loaded through `pi.extensions` in `package.json`. It replaces Pi's footer with `ctx.ui.setFooter`.
-- `pi/line.ts` draws the footer as text with SGR codes for the 16 palette slots. `pi/anim.ts` ports `slot.tsx` and `speed.tsx`. Both run under `node --test` without the Pi host.
+- `pi/line.ts` draws the footer as text with SGR codes for the 16 palette slots. `pi/anim.ts` ports `readout.tsx` and `graph.tsx`. Both run under `node --test` without the Pi host.
 - A change to the line in `hooks/` needs the same change in `pi/`, in the same PR. See Feature parity.
 - Pi tests live in `pi/tests.ts`. A `*.test.ts` name would make `claude plugin test` run them with the Claude Code test kit.
 - Check with `npm ci`, `npm run typecheck:pi` and `npm run test:pi`. CI runs them after the Claude Code steps.

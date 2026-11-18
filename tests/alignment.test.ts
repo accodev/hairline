@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-// The line's speed group keeps one width in every phase, so the separator after it never moves.
+// The line's activity keeps one width in every phase, so the separator after it never moves.
 
 const HINT = {
   plugin: 'hairline',
@@ -20,7 +20,7 @@ async function inline(node: Node | string, drawn: (key: string) => Promise<Node>
 }
 const flat = (node: Node | string): string => (typeof node === 'string' ? node : (node.children ?? []).map(flat).join(''))
 
-test('the speed group keeps its width in every phase', async ($, on) => {
+test('the activity keeps its width in every phase', async ($, on) => {
   const clock = mock.clock(on, { now: Date.now() })
   on('session.start', () => ({ cwd: '/home/dev/hairline' }))
   on('fs.stat', () => ({ deny: 'ENOENT' }) as never)
@@ -43,7 +43,7 @@ test('the speed group keeps its width in every phase', async ($, on) => {
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/home/dev/hairline' })
   const ui = await $.ui.mount(HINT)
   const line = async () => flat(await inline((await ui.drawn()) as Node, async key => (await ui.drawn({ in: key })) as Node))
-  // The column of the separator after the speed group: the second " · " after the context figures.
+  // The column of the separator after the activity: the second " · " after the context figures.
   const sepAt = (text: string) => text.indexOf(' · ', text.indexOf(' · ') + 1)
 
   await ui.advance(3_000)
@@ -54,7 +54,7 @@ test('the speed group keeps its width in every phase', async ($, on) => {
   const sending = await line()
   await ui.advance(1_000) // past the scramble, the time still counts
   const later = await line()
-  expect(later).toMatch(/ 0\.9s /) // the slot sees the phase after the first 500 ms; the time stopped at 0.0s before
+  expect(later).toMatch(/ 0\.9s /) // the readout sees the phase after the first 500 ms; the time stopped at 0.0s before
   release()
   await first
   await ui.advance(200)

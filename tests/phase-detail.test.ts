@@ -1,11 +1,11 @@
 import { expect, test } from 'claude-code/testing'
-import { toolSlot } from '../hooks/register.tsx'
-import { sendingText } from '../hooks/slot.tsx'
-import { sweepBars } from '../hooks/speed.tsx'
+import { toolReadout } from '../hooks/register.tsx'
+import { sendingText } from '../hooks/readout.tsx'
+import { sweepBars } from '../hooks/graph.tsx'
 
-const WIDTH = 15 // the slot, its gap and the dot line
+const WIDTH = 15 // the readout, its gap and the graph
 
-test('a running tool fills exactly the slot and the dot line', () => {
+test('a running tool fills exactly the readout and the graph', () => {
   const cases = [
     [[{ name: 'Bash', arg: 'Run the hairline tests' }], 'Bash Run the h…', 4],
     [[{ name: 'Read', arg: 'slot.tsx' }], 'Read slot.tsx  ', 4],
@@ -16,14 +16,14 @@ test('a running tool fills exactly the slot and the dot line', () => {
     [[], '        running', 0],
   ] as const
   for (const [tools, text, bright] of cases) {
-    const slot = toolSlot([...tools], WIDTH)
-    expect(slot.text).toBe(text)
-    expect(slot.text).toHaveLength(WIDTH)
-    expect(slot.bright).toBe(bright)
+    const readout = toolReadout([...tools], WIDTH)
+    expect(readout.text).toBe(text)
+    expect(readout.text).toHaveLength(WIDTH)
+    expect(readout.bright).toBe(bright)
   }
 })
 
-test('the sending time keeps the slot width', () => {
+test('the sending time keeps the readout width', () => {
   expect(sendingText(0, 8)).toBe('    0.0s')
   expect(sendingText(4_160, 8)).toBe('    4.1s')
   expect(sendingText(128_000, 8)).toBe('  128.0s')

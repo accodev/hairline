@@ -9,7 +9,7 @@ const TPS_MAX = 9999
 const WARN_FROM = 60
 const BAD_FROM = 85
 const RESET_SHOWN_FROM = 70
-const LOCATION_REFRESH_MS = 5_000
+const WORKSPACE_REFRESH_MS = 5_000
 const IDLE_REFRESH_MS = 60_000
 const RATE_WINDOW_MS = 1_000
 const RATE_WARMUP_MS = 1_000
@@ -32,22 +32,22 @@ const NERD_GLYPHS = { tool: '\uf013', reset: '\uf017', worktree: '\uf07b', branc
 const DESKTOP_GLYPHS = { tool: '\u2699\ufe0f' } as const // gear
 // A white circle: a geometric shape that terminal fonts and the desktop app's fallback fonts both draw.
 const IDLE_GLYPH = '\u25cb'
-// Outside a reply the speed slot names the phase, in the cells of the number and " t/s".
+// Outside a reply the readout names the phase, in the cells of the number and " t/s".
 const PHASE_WORDS = { idle: 'idle', sending: 'sending', tool: 'running' } as const
-const SLOT_WIDTH = TPS_WIDTH + ' t/s'.length
-// The slot, its gap and speed.tsx's 6 cells: a running tool's name and argument fill them all.
-const TOOL_WIDTH = SLOT_WIDTH + 1 + 6
-// The terminal's columns give the phase words and the speed more room than the desktop band has.
-const SLOT_WIDTH_WIDE = 12
+const READOUT_WIDTH = TPS_WIDTH + ' t/s'.length
+// The readout, its gap and graph.tsx's 6 cells: a running tool's name and argument fill them all.
+const TOOL_WIDTH = READOUT_WIDTH + 1 + 6
+// The terminal's columns give the readout and the graph more room than the desktop band has.
+const READOUT_WIDTH_WIDE = 12
 const COUNT_WIDTH = 6 // 35.52M
 // The padded token row: 4 counts, each a space and its unit, joined by 3 " / ".
-const TOKEN_ROW_WIDTH = 4 * COUNT_WIDTH + ' in out read write'.length + 3 * ' / '.length
-// The graph fills the speed row to the token row's width, so the column never wraps either row:
-// the phase glyph and its space, the slot, a space, the graph.
-const SPEED_CELLS_WIDE = TOKEN_ROW_WIDTH - 2 - SLOT_WIDTH_WIDE - 1
+const TOKEN_SPLIT_WIDTH = 4 * COUNT_WIDTH + ' in out read write'.length + 3 * ' / '.length
+// The graph fills the activity row to the token split's width, so the column never wraps either row:
+// the phase glyph and its space, the readout, a space, the graph.
+const GRAPH_CELLS_WIDE = TOKEN_SPLIT_WIDTH - 2 - READOUT_WIDTH_WIDE - 1
 // The first column: the repository over the context. The repository keeps its name; a longer
 // worktree or branch is cut with an ellipsis.
-const PLACE_WIDTH = 52
+const WORKSPACE_WIDTH = 52
 const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
@@ -124,18 +124,13 @@ const emptySession = (): Session => ({
 })
 let session = emptySession()
 let loaded = false
-type Panel = 'tokens' | 'effort' | 'model'
-let open: Panel | null = null
-function setOpen($: EngineInterface, panel: Panel | null): void {
+type Open = 'ledger' | 'effort' | 'model'
+let open: Open | null = null
+function setOpen($: EngineInterface, panel: Open | null): void {
   open = panel
   redraw($)
 }
-const toggle = ($: EngineInterface, panel: Panel) => setOpen($, open === panel ? null : panel)
-let isLocationOpen = false // the worktree and branch, folded to [+] until a click
-function toggleLocation($: EngineInterface): void {
-  isLocationOpen = !isLocationOpen
-  redraw($)
-}
+const toggle = ($: EngineInterface, panel: Open) => setOpen($, open === panel ? null : panel)
 let modelRow: { value: string; options: readonly string[] } | null = null
 let charsPerToken = 4 // the usual English ratio, until the first response measures it
 
@@ -328,7 +323,7 @@ function modelLabel(id: string): string {
   return version.length ? `${family} ${version.join('.')}` : family ?? id
 }
 
-// The argument that says most about a call, for the slot: a Bash description, a file name, a pattern.
+// The argument that says most about a call, for the readout: a Bash description, a file name, a pattern.
 function toolArg(tool: string, input: unknown): string {
   const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
   const text = (key: string) => (typeof args[key] === 'string' ? (args[key] as string) : '')
@@ -345,7 +340,7 @@ function toolArg(tool: string, input: unknown): string {
 }
 
 // Exactly `width` cells: the first call's name and argument, or the name and the count of calls.
-export function toolSlot(tools: { name: string; arg: string }[], width: number): { text: string; bright: number } {
+export function toolReadout(tools: { name: string; arg: string }[], width: number): { text: string; bright: number } {
   const first = tools[0]
   if (!first) return { text: PHASE_WORDS.tool.padStart(width), bright: 0 }
   const more = tools.length < 2 ? first.arg : tools.every(t => t.name === first.name) ? `×${tools.length}` : `+${tools.length - 1}`
@@ -476,12 +471,12 @@ async function findRepo($: EngineInterface): Promise<Repo> {
   return { name: basename(cwd), worktree: null, head: null }
 }
 
-// The worktree and the branch cut to fit PLACE_WIDTH with the repository, the parentheses, the
+// The worktree and the branch cut to fit WORKSPACE_WIDTH with the repository, the parentheses, the
 // separator and the glyphs. The longer name loses a cell first, so both stay readable.
-function cutPlace(folder: string, worktree: string | null, branch: string | null, hasGlyphs: boolean): { worktree: string; branch: string } {
+function cutWorkspace(folder: string, worktree: string | null, branch: string | null, hasGlyphs: boolean): { worktree: string; branch: string } {
   const glyph = hasGlyphs ? 2 : 0
   const fixed = folder.length + (worktree || branch ? 3 : 0) + (worktree && branch ? 3 : 0) + (worktree ? glyph : 0) + (branch ? glyph : 0)
-  const room = Math.max(0, PLACE_WIDTH - fixed)
+  const room = Math.max(0, WORKSPACE_WIDTH - fixed)
   let w = worktree?.length ?? 0
   let b = branch?.length ?? 0
   while (w + b > room) {
@@ -501,7 +496,7 @@ function worktreeOf(gitDir: string, top: string): { name: string; worktree: stri
 }
 
 // Reads the HEAD file, so the 5 s refresh starts no git process. A detached HEAD shows as git shows it.
-async function readLocation($: EngineInterface): Promise<void> {
+async function readWorkspace($: EngineInterface): Promise<void> {
   try {
     repo ??= await findRepo($)
     const head = repo.head ? await $.fs.read(repo.head).then(text => String(text).trim(), () => null) : null
@@ -535,7 +530,7 @@ function startTerminal($: EngineInterface): void {
   if (isTerminalStarted) return
   isTerminalStarted = true
   void readNerdFont($)
-  void readLocation($)
+  void readWorkspace($)
 }
 
 // Also called from the first render: after /reload-plugins, session.start does not fire.
@@ -547,12 +542,12 @@ let idleReadAt = 0
 function startTimer($: EngineInterface): void {
   if (isTimerStarted) return
   isTimerStarted = true
-  $.clock.every(LOCATION_REFRESH_MS, () => {
-    if (isTerminalStarted) void readLocation($)
+  $.clock.every(WORKSPACE_REFRESH_MS, () => {
+    if (isTerminalStarted) void readWorkspace($)
     void readExchange($)
     void readExtra($)
     void readIdle($)
-    if (open === 'tokens') redraw($) // the cache countdown changes with no event
+    if (open === 'ledger') redraw($) // the cache countdown changes with no event
   })
 }
 
@@ -623,7 +618,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const c = e.surface === 'terminal' ? TERMINAL_PALETTE : THEME_PALETTE
   // The desktop app shows the folder, model and effort next to the prompt already.
   const isDesktop = e.surface === 'desktop'
-  const slot = (text: string, width: number) => text.padStart(width)
+  const pad = (text: string, width: number) => text.padStart(width)
   if (!isDesktop) startTerminal($)
   const [model, sessionId] = await Promise.all([isDesktop ? '' : $.session.model().catch(() => ''), $.session.id().catch(() => '')])
   const { folder, worktree, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
@@ -634,20 +629,20 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const count = (n: number) => (isDesktop ? human(n) : human(n).padStart(COUNT_WIDTH))
   const tokenSplit = [[count(stats.input), 'in'], [count(stats.output), 'out'], [count(stats.read), 'read'], [count(stats.write), 'write']] as const
   // Fixed in the terminal, so the columns keep their place whatever the figures in them.
-  const slotWidth = isDesktop ? SLOT_WIDTH : SLOT_WIDTH_WIDE
-  const speedCells = SPEED_CELLS_WIDE
-  const speedColumnWidth = TOKEN_ROW_WIDTH
-  const placeCut = cutPlace(folder, worktree, branch, hasNerdFont)
+  const readoutWidth = isDesktop ? READOUT_WIDTH : READOUT_WIDTH_WIDE
+  const graphCells = GRAPH_CELLS_WIDE
+  const activityWidth = TOKEN_SPLIT_WIDTH
+  const workspaceCut = cutWorkspace(folder, worktree, branch, hasNerdFont)
   const pct = context?.percent ?? null
   const now = Date.now()
 
   const Sep = () => <Text dimColor> · </Text>
-  // The number and " t/s" while a reply streams, the phase's word otherwise: slotWidth cells either
-  // way. A running tool fills the slot and the dot line's cells too; slot.tsx counts the sending time.
-  const tool = toolSlot(session.tools, isDesktop ? TOOL_WIDTH : slotWidth + 1 + speedCells)
-  const speedSlot = session.phase === 'receiving'
-    ? `${slot(String(Math.min(TPS_MAX, session.tokensPerSecond)), slotWidth - 4)} t/s`
-    : session.phase === 'tool' ? tool.text : slot(PHASE_WORDS[session.phase], slotWidth)
+  // The number and " t/s" while a reply streams, the phase's word otherwise: readoutWidth cells either
+  // way. A running tool fills the readout and the graph's cells too; readout.tsx counts the sending time.
+  const tool = toolReadout(session.tools, isDesktop ? TOOL_WIDTH : readoutWidth + 1 + graphCells)
+  const readoutText = session.phase === 'receiving'
+    ? `${pad(String(Math.min(TPS_MAX, session.tokensPerSecond)), readoutWidth - 4)} t/s`
+    : session.phase === 'tool' ? tool.text : pad(PHASE_WORDS[session.phase], readoutWidth)
   const isToolShown = session.phase === 'tool'
   const Phase = () => {
     switch (session.phase) {
@@ -719,7 +714,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const Fig = ({ value, unit }: { value: string; unit?: string }) => (
     <Box><Text>{value}</Text>{unit && <Text dimColor>{` ${unit}`}</Text>}</Box>
   )
-  const panel = () => {
+  const ledger = () => {
     const { costUsd, lastTurn, lastTurnUsd, lastRequestAt, limitStart } = session
     const hours = stats.activeMs / HOUR_MS
     const trackedUsd = costUsd !== null && stats.costStart !== null ? costUsd - stats.costStart : null
@@ -788,42 +783,42 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   }
 
   // The pieces both layouts share. Built once per draw, each goes into one layout only.
-  // Idle in the terminal, the slot stays empty: a dim glyph, a word and a flat graph only said so.
-  const speedBody = !isDesktop && session.phase === 'idle' ? <Text> </Text> : (
+  // Idle in the terminal, the readout stays empty: a dim glyph, a word and a flat graph only said so.
+  const activity = !isDesktop && session.phase === 'idle' ? <Text> </Text> : (
     <Box flexShrink={0}>
-      {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the slot 3 cells: 2 for it, 1 of space. */}
+      {/* An emoji or a fallback-font glyph is wider than a cell in the desktop app; the box keeps the glyph 3 cells: 2 for it, 1 of space. */}
       {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
       {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
       {Client ? (
-        <Client key="hairline-slot" module="./slot.tsx" props={{ text: speedSlot, kind: session.phase, bright: session.phase === 'receiving' ? slotWidth - 4 : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
-      ) : isToolShown ? <Text dimColor>{speedSlot}</Text> : session.phase === 'receiving' ? (
+        <Client key="hairline-readout" module="./readout.tsx" props={{ text: readoutText, kind: session.phase, bright: session.phase === 'receiving' ? readoutWidth - 4 : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
+      ) : isToolShown ? <Text dimColor>{readoutText}</Text> : session.phase === 'receiving' ? (
         <Box>
-          <Text>{slot(String(Math.min(TPS_MAX, tokensPerSecond)), slotWidth - 4)}</Text>
+          <Text>{pad(String(Math.min(TPS_MAX, tokensPerSecond)), readoutWidth - 4)}</Text>
           <Text dimColor> t/s</Text>
         </Box>
-      ) : <Text dimColor>{slot(PHASE_WORDS[session.phase], slotWidth)}</Text>}
+      ) : <Text dimColor>{pad(PHASE_WORDS[session.phase], readoutWidth)}</Text>}
       {Client && !isToolShown && <Text> </Text>}
       {Client && !isToolShown && (
-        <Client key="hairline-speed" module="./speed.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop, ...(isDesktop ? {} : { cells: speedCells }) }} />
+        <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop, ...(isDesktop ? {} : { cells: graphCells }) }} />
       )}
     </Box>
   )
 
   // One target for the four figures: each is 3 to 5 cells, too small to aim at alone.
-  const tokenFigures = tokens === 0 ? <Text dimColor>--- tok</Text> : isDesktop && Client ? (
+  const tokenSplitControl = tokens === 0 ? <Text dimColor>--- tok</Text> : isDesktop && Client ? (
     <Box>
-      <Client key="hairline-tokens" module="./chip.tsx" props={{ text: tokenSplit.map(([n, unit]) => `${n} ${unit}`).join(' / '), inverse: open === 'tokens' }} />
+      <Client key="hairline-token-split" module="./chip.tsx" props={{ text: tokenSplit.map(([n, unit]) => `${n} ${unit}`).join(' / '), inverse: open === 'ledger' }} />
     </Box>
   ) : (
-    <Button key="hairline-tokens" label="tokens" plain onPress={() => toggle($, 'tokens')}>
+    <Button key="hairline-token-split" label="token split" plain onPress={() => toggle($, 'ledger')}>
       {tokenSplit.flatMap(([n, unit], i) => [
-        <Text key={`n${i}`} inverse={open === 'tokens'}>{`${i ? ' / ' : ''}${n}`}</Text>,
-        <Text key={`u${i}`} inverse={open === 'tokens'} dimColor>{` ${unit}`}</Text>,
+        <Text key={`n${i}`} inverse={open === 'ledger'}>{`${i ? ' / ' : ''}${n}`}</Text>,
+        <Text key={`u${i}`} inverse={open === 'ledger'} dimColor>{` ${unit}`}</Text>,
       ])}
     </Button>
   )
 
-  const modelEffort = model && !isDesktop && (
+  const modelControls = model && !isDesktop && (
     <Box flexShrink={0}>
       {modelRow ? (
         <Button
@@ -877,12 +872,12 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       <Box flexDirection="row" flexShrink={0}>
         {contextBar}
         {pct === null
-          ? <Text dimColor>{` ${slot('--%', PCT_WIDTH)}`}</Text>
-          : <Text color={rampColor(c, pct, compactAt)}>{` ${slot(`${Math.round(pct)}%`, PCT_WIDTH)}`}</Text>}
-        <Text dimColor>{` ${slot(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`}</Text>
+          ? <Text dimColor>{` ${pad('--%', PCT_WIDTH)}`}</Text>
+          : <Text color={rampColor(c, pct, compactAt)}>{` ${pad(`${Math.round(pct)}%`, PCT_WIDTH)}`}</Text>}
+        <Text dimColor>{` ${pad(context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`, CONTEXT_WIDTH)}`}</Text>
       </Box>
-      <Box flexShrink={0}><Sep />{speedBody}</Box>
-      <Box flexShrink={0}><Sep />{tokenFigures}</Box>
+      <Box flexShrink={0}><Sep />{activity}</Box>
+      <Box flexShrink={0}><Sep />{tokenSplitControl}</Box>
       {windows}
       {extraSpend}
       <Box flexDirection="row" flexShrink={0} paddingLeft={2} flexGrow={1} justifyContent="flex-end">
@@ -905,35 +900,35 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     )
   }
   // Claude Code indents the hint line 2 columns on each side: a rule of the full width wraps.
-  const ruleCells = Math.max(BAR_CELLS, (e.viewport?.columns ?? 0) - 4)
-  const ruleFilled = pct === null ? 0 : Math.round((Math.min(pct, 100) / 100) * ruleCells)
+  const contextBarCells = Math.max(BAR_CELLS, (e.viewport?.columns ?? 0) - 4)
+  const contextBarFilled = pct === null ? 0 : Math.round((Math.min(pct, 100) / 100) * contextBarCells)
   // In the last cell the marker would only repeat the rule's own end, so it hides there.
-  const ruleMarker = compactAt === null ? -1 : Math.min(ruleCells, Math.floor((compactAt / 100) * ruleCells))
+  const contextBarMarker = compactAt === null ? -1 : Math.min(contextBarCells, Math.floor((compactAt / 100) * contextBarCells))
   // Runs of one glyph in one color share a Text: a cell each would be some 200 elements.
-  const ruleRuns: { glyph: string; color: string; text: string }[] = []
-  for (let i = 0; i < ruleCells; i++) {
-    const isFilled = i < ruleFilled
-    const ramp = rampColor(c, ((i + 0.5) / ruleCells) * 100, compactAt)
-    const isMarker = i === ruleMarker && i < ruleCells - 1
+  const contextBarRuns: { glyph: string; color: string; text: string }[] = []
+  for (let i = 0; i < contextBarCells; i++) {
+    const isFilled = i < contextBarFilled
+    const ramp = rampColor(c, ((i + 0.5) / contextBarCells) * 100, compactAt)
+    const isMarker = i === contextBarMarker && i < contextBarCells - 1
     const glyph = isMarker ? '┃' : isFilled ? '━' : '─'
     // The track is dim text: slot 8 vanishes on translucent and dark backgrounds.
     const color = isMarker ? (isFilled ? ramp : c.marker) : isFilled ? ramp : ''
-    const last = ruleRuns[ruleRuns.length - 1]
+    const last = contextBarRuns[contextBarRuns.length - 1]
     if (last && last.glyph === glyph && last.color === color) last.text += glyph
-    else ruleRuns.push({ glyph, color, text: glyph })
+    else contextBarRuns.push({ glyph, color, text: glyph })
   }
   const terminalLine = (
     <Box flexDirection="column" width="100%">
       <Box flexDirection="row" width="100%" flexWrap="wrap">
-        <Box flexDirection="column" width={PLACE_WIDTH} flexShrink={0} overflow="hidden" marginRight={3}>
+        <Box flexDirection="column" width={WORKSPACE_WIDTH} flexShrink={0} overflow="hidden" marginRight={3}>
           {/* Cut here, to the cell: left to flex, the short pieces shrank to nothing and wrapped. */}
           <Box flexDirection="row" height={1} overflow="hidden">
             <Text color={c.folder}>{folder}</Text>
             {(worktree || branch) && <Text dimColor> (</Text>}
-            {worktree && <Text dimColor>{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${placeCut.worktree}`}</Text>}
+            {worktree && <Text dimColor>{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${workspaceCut.worktree}`}</Text>}
             {worktree && branch && <Text dimColor> · </Text>}
             {branch && hasNerdFont && <Text color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>}
-            {branch && <Text color={c.branch}>{placeCut.branch}</Text>}
+            {branch && <Text color={c.branch}>{workspaceCut.branch}</Text>}
             {(worktree || branch) && <Text dimColor>)</Text>}
           </Box>
           <Box flexShrink={0} height={1} overflow="hidden">
@@ -942,9 +937,9 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             {compactAt !== null && <Text dimColor>{` · compacts at ${Math.round(compactAt)}%`}</Text>}
           </Box>
         </Box>
-        <Box flexDirection="column" width={speedColumnWidth} flexShrink={0} overflow="hidden" marginRight={3}>
-          {speedBody}
-          <Box flexShrink={0}>{tokenFigures}</Box>
+        <Box flexDirection="column" width={activityWidth} flexShrink={0} overflow="hidden" marginRight={3}>
+          {activity}
+          <Box flexShrink={0}>{tokenSplitControl}</Box>
         </Box>
         {/* The limits belong to the account, not this session: they sit right, beside the model. */}
         <Box flexGrow={1} />
@@ -953,12 +948,12 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           <Box flexShrink={0}>{limitCell('seven_day', '7d')}{extraSpend}</Box>
         </Box>
         <Box flexDirection="column" flexShrink={0} alignItems="flex-end">
-          {modelEffort || <Text> </Text>}
+          {modelControls || <Text> </Text>}
           {sessionIdControl || <Text> </Text>}
         </Box>
       </Box>
       <Box width="100%" overflow="hidden" flexWrap="nowrap">
-        {ruleRuns.map((run, i) => run.color
+        {contextBarRuns.map((run, i) => run.color
           ? <Text key={`rule-${i}`} color={run.color} wrap="truncate-end">{run.text}</Text>
           : <Text key={`rule-${i}`} dimColor wrap="truncate-end">{run.text}</Text>)}
       </Box>
@@ -1017,7 +1012,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
           ))}
         </Box>
       )}
-      {open === 'tokens' && tokens > 0 && panel()}
+      {open === 'ledger' && tokens > 0 && ledger()}
     </Box>
   )
   return (
@@ -1154,7 +1149,7 @@ export const register: Register = (on, options) => {
 
   // Clicks on the desktop app's chips (hooks/chip.tsx), which stand in for the terminal's Buttons.
   on('ui.message', async ($, e, next) => {
-    if (e.element === 'hairline-tokens') toggle($, 'tokens')
+    if (e.element === 'hairline-token-split') toggle($, 'ledger')
     else if (e.element === 'hairline-session-id') await copySessionId($, e.surface)
     return next(e)
   })
