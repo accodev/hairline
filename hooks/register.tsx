@@ -37,10 +37,12 @@ const PHASE_WORDS = { idle: 'idle', sending: 'sending', tool: 'running' } as con
 const SLOT_WIDTH = TPS_WIDTH + ' t/s'.length
 // The slot, its gap and speed.tsx's 6 cells: a running tool's name and argument fill them all.
 const TOOL_WIDTH = SLOT_WIDTH + 1 + 6
-const SPEED_CELLS_MIN = 16
 // The terminal's columns give the phase words and the speed more room than the desktop band has.
 const SLOT_WIDTH_WIDE = 12
-const SPEED_CELLS_MAX = 40
+const SPEED_CELLS_WIDE = 32
+const COUNT_WIDTH = 6 // 35.52M
+// The first column: the repository over the context. A longer name is cut with an ellipsis.
+const PLACE_WIDTH = 40
 const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
@@ -605,12 +607,15 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const { folder, worktree, branch, effort, stats, tokensPerSecond, context, compactAt, rateLimits } = session
   const tokens = counted(stats)
   // Each kind costs a different price, so the line splits them as Pi's footer does.
-  const tokenSplit = [[human(stats.input), 'in'], [human(stats.output), 'out'], [human(stats.read), 'read'], [human(stats.write), 'write']] as const
-  // In the terminal the speed graph ends where the tokens under it end: the phase glyph and the
-  // slot take slotWidth + 3 cells of that row, the graph the rest, within 16 to 40 cells.
+  // In the terminal each count is padded to the widest human() gives (35.52M), so a count that
+  // grows a digit moves none of the figures after it.
+  const count = (n: number) => (isDesktop ? human(n) : human(n).padStart(COUNT_WIDTH))
+  const tokenSplit = [[count(stats.input), 'in'], [count(stats.output), 'out'], [count(stats.read), 'read'], [count(stats.write), 'write']] as const
+  // Fixed in the terminal, so the columns keep their place whatever the figures in them.
   const slotWidth = isDesktop ? SLOT_WIDTH : SLOT_WIDTH_WIDE
-  const tokenText = tokens === 0 ? '--- tok' : tokenSplit.map(([n, unit]) => `${n} ${unit}`).join(' / ')
-  const speedCells = Math.min(SPEED_CELLS_MAX, Math.max(SPEED_CELLS_MIN, tokenText.length - slotWidth - 3))
+  const speedCells = SPEED_CELLS_WIDE
+  // The phase glyph and its space, the slot, a space, the graph.
+  const speedColumnWidth = 2 + slotWidth + 1 + speedCells
   const pct = context?.percent ?? null
   const now = Date.now()
 
@@ -898,7 +903,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const terminalLine = (
     <Box flexDirection="column" width="100%">
       <Box flexDirection="row" width="100%" flexWrap="wrap">
-        <Box flexDirection="column" flexShrink={1} overflow="hidden" marginRight={3}>
+        <Box flexDirection="column" width={PLACE_WIDTH} flexShrink={0} overflow="hidden" marginRight={3}>
           <Box flexDirection="row" overflow="hidden">
             <Text color={c.folder} wrap="truncate-end">{folder}</Text>
             {(worktree || branch) && <Text dimColor> (</Text>}
@@ -914,7 +919,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
             {compactAt !== null && <Text dimColor>{` · compacts at ${Math.round(compactAt)}%`}</Text>}
           </Box>
         </Box>
-        <Box flexDirection="column" flexShrink={0} marginRight={3}>
+        <Box flexDirection="column" width={speedColumnWidth} flexShrink={0} overflow="hidden" marginRight={3}>
           {speedBody}
           <Box flexShrink={0}>{tokenFigures}</Box>
         </Box>
