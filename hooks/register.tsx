@@ -39,10 +39,15 @@ const SLOT_WIDTH = TPS_WIDTH + ' t/s'.length
 const TOOL_WIDTH = SLOT_WIDTH + 1 + 6
 // The terminal's columns give the phase words and the speed more room than the desktop band has.
 const SLOT_WIDTH_WIDE = 12
-const SPEED_CELLS_WIDE = 32
 const COUNT_WIDTH = 6 // 35.52M
-// The first column: the repository over the context. A longer name is cut with an ellipsis.
-const PLACE_WIDTH = 40
+// The padded token row: 4 counts, each a space and its unit, joined by 3 " / ".
+const TOKEN_ROW_WIDTH = 4 * COUNT_WIDTH + ' in out read write'.length + 3 * ' / '.length
+// The graph fills the speed row to the token row's width, so the column never wraps either row:
+// the phase glyph and its space, the slot, a space, the graph.
+const SPEED_CELLS_WIDE = TOKEN_ROW_WIDTH - 2 - SLOT_WIDTH_WIDE - 1
+// The first column: the repository over the context. The repository keeps its name; a longer
+// worktree or branch is cut with an ellipsis.
+const PLACE_WIDTH = 52
 const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
@@ -614,8 +619,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   // Fixed in the terminal, so the columns keep their place whatever the figures in them.
   const slotWidth = isDesktop ? SLOT_WIDTH : SLOT_WIDTH_WIDE
   const speedCells = SPEED_CELLS_WIDE
-  // The phase glyph and its space, the slot, a space, the graph.
-  const speedColumnWidth = 2 + slotWidth + 1 + speedCells
+  const speedColumnWidth = TOKEN_ROW_WIDTH
   const pct = context?.percent ?? null
   const now = Date.now()
 
@@ -905,7 +909,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       <Box flexDirection="row" width="100%" flexWrap="wrap">
         <Box flexDirection="column" width={PLACE_WIDTH} flexShrink={0} overflow="hidden" marginRight={3}>
           <Box flexDirection="row" overflow="hidden">
-            <Text color={c.folder} wrap="truncate-end">{folder}</Text>
+            <Box flexShrink={0}><Text color={c.folder}>{folder}</Text></Box>
             {(worktree || branch) && <Text dimColor> (</Text>}
             {worktree && <Text dimColor wrap="truncate-end">{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${worktree}`}</Text>}
             {worktree && branch && <Text dimColor> · </Text>}
