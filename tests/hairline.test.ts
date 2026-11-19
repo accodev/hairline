@@ -227,6 +227,38 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
   await ui.unmount()
 })
 
+test('a save before the reload restored the counts keeps the token split', async ($, on) => {
+  mock.clock(on)
+  const stats = { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 }
+  const kept = new Map<string, unknown>([['sessions', [{ sessionId: SESSION_ID, stats }]]])
+  on('store.get', ($, e) => ({ value: kept.get(e.key) }) as never)
+  on('store.set', ($, e) => (kept.set(e.key, e.value), { value: undefined }) as never)
+  on('session.cwd', () => ({ value: 'C:/code/hairline' }))
+  on('fs.stat', () => ({ deny: 'ENOENT' }) as never)
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('config.list', () => ({ value: [] }))
+  on('session.usage', () => ({ value: { startedAt: Date.now(), context: { tokens: 1_000, window: 200_000, percent: 1 }, rateLimits: [] } }))
+  // The session id comes late, so the restore of the saved counts is still out when the effort is saved.
+  let release: () => void = () => {}
+  const held = new Promise<void>(resolve => { release = resolve })
+  on('session.id', async () => (await held, { value: SESSION_ID }))
+  on('turn.step', async function* () { return { turnId: 't', index: 0, answer: '', toolUses: [] } as never })
+  on('ui.render', ($, e) => ({ type: 'Text', props: {}, children: ['hint' in e.props ? e.props.hint : ''] }))
+
+  // /reload-plugins: no session.start, the first render loads.
+  const mounting = $.ui.mount({ ...HINT, surface: 'terminal' })
+  // A request with a new effort saves before the restore is back.
+  const step = $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5', messageCount: 1, effort: 'high' } as never)[Symbol.asyncIterator]()
+  await step.next()
+  release()
+  const ui = await mounting
+  await ui.advance(1_000)
+  expect(await ui.find({ type: 'Text', text: / 500 out/ })).toBeDefined()
+  const saved = kept.get('sessions') as { sessionId: string; stats: { output: number } }[]
+  expect(saved.find(s => s.sessionId === SESSION_ID)?.stats.output).toBe(500)
+  await ui.unmount()
+})
+
 async function mountWithExtra($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], weekUsed: number) {
   const clock = mock.clock(on)
   const state = { isEnabled: true }
