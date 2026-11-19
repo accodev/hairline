@@ -371,13 +371,22 @@ async function readSaved($: EngineInterface): Promise<Saved[]> {
   return Array.isArray(list) ? (list as Saved[]) : []
 }
 
+// load() restores the saved counts; a save before that would write the module's fresh zeros.
+let restored: Promise<unknown> = Promise.resolve()
+
 function save($: EngineInterface): void {
-  const { effort, pickedEffort, pickBase, stats, limitStart } = session
-  void Promise.all([$.session.id(), readSaved($)])
-    .then(([sessionId, list]) => $.store.set(SAVED_KEY, [
-      { sessionId, effort, pickedEffort, pickBase, stats, limitStart } satisfies Saved,
-      ...list.filter(saved => saved.sessionId !== sessionId),
-    ].slice(0, SAVED_MAX)))
+  void restored
+    .then(() => Promise.all([$.session.id(), readSaved($)]))
+    .then(([sessionId, list]) => {
+      const { effort, pickedEffort, pickBase, stats, limitStart } = session
+      // A session's counts only grow: a zero over them would hide the token split for good.
+      const stored = list.find(saved => saved.sessionId === sessionId)?.stats
+      const kept = stored && counted(stored) > counted(stats) ? stored : stats
+      return $.store.set(SAVED_KEY, [
+        { sessionId, effort, pickedEffort, pickBase, stats: kept, limitStart } satisfies Saved,
+        ...list.filter(saved => saved.sessionId !== sessionId),
+      ].slice(0, SAVED_MAX))
+    })
     .catch(() => {})
 }
 
@@ -575,12 +584,16 @@ async function load($: EngineInterface): Promise<void> {
   void readExchange($)
   void readExtra($)
   void readCompactAt($)
+  const saving = restore($).then(saved => {
+    if (saved?.stats && counted(saved.stats) > counted(session.stats)) session.stats = { ...emptyStats(), ...saved.stats }
+    return saved
+  })
+  restored = saving
   const [saved, usage, rows] = await Promise.all([
-    restore($),
+    saving,
     $.session.usage().catch(() => null), // the first session.measure sends the numbers
     $.config.list().catch(() => null), // the first request sends the effort
   ])
-  if (saved?.stats && counted(saved.stats) > counted(session.stats)) session.stats = { ...emptyStats(), ...saved.stats }
   if (saved?.limitStart) session.limitStart = { ...saved.limitStart, ...session.limitStart }
   if (usage) {
     session.context = usage.context
