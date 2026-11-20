@@ -1,6 +1,6 @@
 {
   "name": "@accodev/hairline",
-  "version": "0.47.0",
+  "version": "0.47.2",
   "description": "A status line for Claude Code and Pi.",
   "license": "MIT",
   "type": "module",
