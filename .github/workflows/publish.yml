@@ -1,0 +1,46 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  # npm trusted publishing trades the workflow's OIDC token for a publish token: no NPM_TOKEN secret to leak.
+  id-token: write
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
+      - name: Update npm
+        run: npm install --global npm@^11.5.1
+
+      - name: Install the Pi extension's dev packages
+        run: npm ci
+
+      - name: Type-check the Pi extension
+        run: npm run typecheck:pi
+
+      - name: Run the Pi extension tests
+        run: npm run test:pi
+
+      # Releases follow the Claude plugin's version; the Pi package bumps only when the extension changes.
+      - name: Publish unless this version is on npm
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version is already on npm"
+          else
+            npm publish --access public
+          fi
