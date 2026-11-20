@@ -1,5 +1,5 @@
 {
-  "name": "hairline",
+  "name": "@accodev/hairline",
   "version": "0.47.0",
   "description": "A status line for Claude Code and Pi.",
   "license": "MIT",
