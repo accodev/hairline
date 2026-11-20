@@ -3,6 +3,8 @@ name: publish
 on:
   release:
     types: [published]
+  # Retries a release whose run failed: a rerun would replay the workflow as it was at the release's tag.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,9 +23,9 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
+      # Staged publishing needs npm 11.15.0 or later; Node 22 ships npm 10.
       - name: Update npm
-        run: npm install --global npm@^11.5.1
+        run: npm install --global npm@^11.15.0
 
       - name: Install the Pi extension's dev packages
         run: npm ci
@@ -35,12 +37,13 @@ jobs:
         run: npm run test:pi
 
       # Releases follow the Claude plugin's version; the Pi package bumps only when the extension changes.
-      - name: Publish unless this version is on npm
+      # Staged, not published: the version goes live only once a maintainer approves it with 2FA on npmjs.com.
+      - name: Stage unless this version is on npm
         run: |
           name=$(node -p "require('./package.json').name")
           version=$(node -p "require('./package.json').version")
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version is already on npm"
           else
-            npm publish --access public
+            npm stage publish
           fi
