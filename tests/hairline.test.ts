@@ -287,8 +287,8 @@ async function mountWithExtra($: Parameters<Parameters<typeof test>[1]>[0], on: 
   return { ui, clock, state, asked }
 }
 
-test('shows the month\'s extra usage spend after a full limit, only while it is enabled', async ($, on) => {
-  const { ui, clock, state, asked } = await mountWithExtra($, on, 100)
+test('shows the month\'s extra usage spend from 95% of a limit, only while it is enabled', async ($, on) => {
+  const { ui, clock, state, asked } = await mountWithExtra($, on, 95)
   expect(asked.find(a => a.url.includes('/api/oauth/usage'))).toEqual({ url: 'https://api.anthropic.com/api/oauth/usage', auth: 'h1', beta: 'oauth-2025-04-20' })
   expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^€\s?9[.,]72$/ })).toBeDefined()
@@ -302,9 +302,9 @@ test('shows the month\'s extra usage spend after a full limit, only while it is 
   await ui.unmount()
 })
 
-test('hides the extra usage spend while both limits have room', async ($, on) => {
-  const { ui } = await mountWithExtra($, on, 99)
-  expect(await ui.find({ type: 'Text', text: '99%' })).toBeDefined()
+test('hides the extra usage spend while both limits are under 95%', async ($, on) => {
+  const { ui } = await mountWithExtra($, on, 94)
+  expect(await ui.find({ type: 'Text', text: '94%' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeUndefined()
   await ui.unmount()
 })

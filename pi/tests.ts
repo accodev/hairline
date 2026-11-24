@@ -59,13 +59,14 @@ test('draws two rows of columns over a rule across the footer', () => {
   assert.match(bar, /^━{83}─{45}┃─{31}$/)
 })
 
-test('the month\'s extra usage spend follows the limits, only while it is enabled and a window is full', () => {
+test('the month\'s extra usage spend follows the limits, only while it is enabled and a window is at 95%', () => {
   const body = (isEnabled: boolean) => JSON.stringify({ five_hour: { utilization: 25 }, extra_usage: { is_enabled: isEnabled, monthly_limit: 10_000, used_credits: 972, utilization: 9.72, currency: 'EUR', decimal_places: 2 } })
   const extra = readExtraBody(body(true))
   assert.deepEqual(extra, { used: 9.72, limit: 100, currency: 'EUR', pct: 9.72 })
   assert.doesNotMatch(drawFooter(view({ extra }), 180).lines.map(plain).join('\n'), /extra/)
-  const capped = view({ extra, limits: [{ kind: 'five_hour', percentUsed: 38 }, { kind: 'seven_day', percentUsed: 100, resetsAt: new Date(Date.now() + 3 * 86_400_000).toISOString() }] })
-  assert.match(plain(drawFooter(capped, 180).lines[1]!), /7d 100% 3d · extra €\s?9[.,]72\/€\s?100 /)
+  const near = (pct: number) => view({ extra, limits: [{ kind: 'five_hour', percentUsed: 38 }, { kind: 'seven_day', percentUsed: pct, resetsAt: new Date(Date.now() + 3 * 86_400_000).toISOString() }] })
+  assert.match(plain(drawFooter(near(95), 180).lines[1]!), /7d 95% 3d · extra €\s?9[.,]72\/€\s?100 /)
+  assert.doesNotMatch(drawFooter(near(94), 180).lines.map(plain).join('\n'), /extra/)
   assert.equal(readExtraBody(body(false)), null)
   assert.equal(readExtraBody('{"extra_usage":null}'), null)
   // The same reply carries the account's limits, other sessions' use included.
