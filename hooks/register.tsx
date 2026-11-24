@@ -61,6 +61,7 @@ const RATE_LIMIT_WINDOWS = [
 // its shape hides the figure. CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC refuses the call.
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 const EXTRA_REFRESH_MS = 60_000
+export const EXTRA_SHOWN_FROM = 95 // percent of the 5h or 7d window
 const EXTRA_RETRY_MS = 600_000
 
 // Terminal slots 0-15 (ansi256(n), n < 16) take each person's color scheme. Other surfaces get
@@ -716,8 +717,9 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     )
   })
 
-  // Extra usage is billed only after the 5h or 7d window is full, so the spend shows only then.
-  const isCapped = RATE_LIMIT_WINDOWS.some(({ kind }) => (rateLimits.find(l => l.kind === kind)?.percentUsed ?? 0) >= 100)
+  // Extra usage is billed only after the 5h or 7d window is full. The spend shows from EXTRA_SHOWN_FROM,
+  // so the cap is in view before the first billed request.
+  const isCapped = RATE_LIMIT_WINDOWS.some(({ kind }) => (rateLimits.find(l => l.kind === kind)?.percentUsed ?? 0) >= EXTRA_SHOWN_FROM)
   const extraSpend = extra && isCapped && (
     <Box key="extra" flexShrink={0}>
       <Sep />

@@ -246,10 +246,12 @@ export function amount(value: number, currency: string): string {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: 2 }).format(value)
 }
 
-// Extra usage is billed only after the 5h or 7d window is full, so the spend shows only then.
+// Extra usage is billed only after the 5h or 7d window is full. The spend shows from EXTRA_SHOWN_FROM,
+// so the cap is in view before the first billed request.
+export const EXTRA_SHOWN_FROM = 95 // percent of the 5h or 7d window
 function extraSpend(v: View): string {
   const x = v.extra
-  const isCapped = RATE_LIMIT_WINDOWS.some(({ kind }) => (v.limits.find(l => l.kind === kind)?.percentUsed ?? 0) >= 100)
+  const isCapped = RATE_LIMIT_WINDOWS.some(({ kind }) => (v.limits.find(l => l.kind === kind)?.percentUsed ?? 0) >= EXTRA_SHOWN_FROM)
   return x && isCapped ?`${SEP}${dim('extra ')}${paint(amount(x.used, x.currency), { color: severity(x.pct) })}${dim(`/${amount(x.limit, x.currency)}`)}` : ''
 }
 
