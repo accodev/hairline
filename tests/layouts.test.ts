@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { scanCells, type BarRun } from '../hooks/bar.tsx'
+import { workspaceWidth, WORKSPACE_WIDTH } from '../hooks/register.tsx'
 
 // The one-row layouts: scan draws the activity as a light on the context bar, middle centers it
 // between the workspace and the limits. Both keep the percent on the bar, where the fill ends.
@@ -58,6 +59,11 @@ async function mount($: Parameters<Parameters<typeof test>[2]>[0], on: Parameter
   const start = () => $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5', messageCount: 1 })[Symbol.asyncIterator]()
   return { ui, clock, tree, start, release }
 }
+
+test('the workspace takes half the row, never less than 52 cells', () => {
+  expect(workspaceWidth(80)).toBe(WORKSPACE_WIDTH)
+  expect(workspaceWidth(196)).toBe(98)
+})
 
 test('the scan head crosses the whole bar in 3 steps and leaves the percent alone', () => {
   const runs: BarRun[] = [{ glyph: '━', color: 'ansi256(2)', text: '━━━━' }, { glyph: 'text', color: 'ansi256(3)', text: ' 41% ' }, { glyph: '─', color: '', text: '─'.repeat(31) }]

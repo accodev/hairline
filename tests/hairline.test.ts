@@ -144,7 +144,7 @@ test('a worktree shows the repository name, then the worktree and the branch', a
   await ui.unmount()
 })
 
-test('long worktree and branch names are cut to fit the first column on one row', async ($, on) => {
+test('long worktree and branch names are cut to fit half the row', async ($, on) => {
   const clock = mock.clock(on)
   const name = '1245_the-tills-fiscal-module-runs-as'
   const top = `C:/code/market-it/.claude/worktrees/${name}`
@@ -169,8 +169,8 @@ test('long worktree and branch names are cut to fit the first column on one row'
   const branch = String((await ui.find({ type: 'Text', text: /^accodev\/.*…$/ }))?.children?.[0] ?? '')
   expect(worktree).toMatch(/…$/)
   expect(branch).toMatch(/…$/)
-  // market-it, " (", the worktree, " · ", the branch, ")": within the column's 52 cells.
-  expect('market-it'.length + 2 + worktree.length + 3 + branch.length + 1).toBeLessThanOrEqual(52)
+  // market-it, " (", the worktree, " · ", the branch, ")": within half of the 156-cell row.
+  expect('market-it'.length + 2 + worktree.length + 3 + branch.length + 1).toBe(78)
   await ui.unmount()
 })
 
