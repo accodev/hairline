@@ -70,7 +70,13 @@ Screens land in `scripts/e2e-out/`. The `e2e` workflow runs both on Linux for ch
 ## Ship
 
 - Conventional Commits. One PR per change, CI green, rebase merge.
-- Bump `version` in `.claude-plugin/plugin.json` on a behavior change.
+- Size each PR as a release and bump `version` in `plugin.json` and `package.json` in the same PR:
+  - MAJOR: a breaking change, marked `!` in the type. Examples: a removed or renamed setting or key, a changed command, a raised `engines` or Pi peer range.
+  - MINOR: `feat`, something users can see or do that is new.
+  - PATCH: `fix` or `perf`.
+  - No bump: `docs`, `ci`, `test`, `chore` or `refactor` with no change users see.
+- Bump `package.json` with sed, plus the two `version` lines of `package-lock.json`: `npm version` reformats inline arrays.
+- The merge of a PR that raises the version runs `publish.yml`: it tags `hairline--v<version>` with `claude plugin tag --push`, creates the GitHub release and stages the version on npm. A maintainer approves the stage with 2FA on npmjs.com. Do not tag or release by hand.
 - Comments say why, never what.
 - README images come from `tests/screenshots.test.ts`. The `screenshots` workflow renders them on `main` and pushes them to the `screenshots` branch.
 - Keep each file's line endings. Source files and `plugin.json` are CRLF. Other JSON and YAML files are LF.
