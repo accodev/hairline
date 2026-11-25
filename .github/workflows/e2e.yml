@@ -1,0 +1,82 @@
+name: e2e
+
+# Drives real Claude Code and Pi sessions in a pseudo-terminal and checks hairline's two rows before
+# and after one turn. A fake model in scripts/e2e_kit.py gives the reply, so no API key is needed.
+on:
+  push:
+    branches: [main]
+    paths: [hooks/**, pi/**, scripts/**, .github/workflows/e2e.yml]
+  pull_request:
+    paths: [hooks/**, pi/**, scripts/**, .github/workflows/e2e.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+# The same pins as ci.yml and the devDependency in package.json.
+env:
+  CLAUDE_CODE_VERSION: 2.1.312
+  PI_VERSION: 1.5.0
+
+jobs:
+  claude-code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install Claude Code
+        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+      - name: Install the terminal driver
+        run: |
+          python3 -m venv .e2e
+          .e2e/bin/pip install --quiet pyte ptyprocess
+
+      - name: Run
+        run: .e2e/bin/python -I scripts/e2e.py
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: e2e-claude-code
+          path: scripts/e2e-out
+
+  pi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install Pi
+        run: npm install --global "@earendil-works/pi-coding-agent@${PI_VERSION}"
+
+      # The extension imports pi-tui from the repo's node_modules.
+      - name: Install the Pi extension's dev packages
+        run: npm ci
+
+      - name: Install the terminal driver
+        run: |
+          python3 -m venv .e2e
+          .e2e/bin/pip install --quiet pyte ptyprocess
+
+      - name: Run
+        run: .e2e/bin/python -I scripts/pi-e2e.py
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: e2e-pi
+          path: scripts/e2e-out
