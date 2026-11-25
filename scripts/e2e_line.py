@@ -18,7 +18,9 @@ def rows(term):
 def check_line(term, checks, model, label, after=False):
     """Idle: the bar, the workspace, `--- tok` and the model. After a turn: a percent on the bar and a
     token count in place of the dashes."""
-    want = (lambda r: TOTAL.search(r)) if after else (lambda r: "--- tok" in r)
+    # The workspace reads git after the first draw, so the row can show the dashes before it.
+    total = (lambda r: TOTAL.search(r)) if after else (lambda r: "--- tok" in r)
+    want = lambda r: total(r) and r.lstrip().startswith(WORKSPACE)
     term.wait(lambda t: (lambda b, r: r is not None and bool(want(r)))(*rows(term)), 30, label)
     time.sleep(1)
     term.dump(label)
