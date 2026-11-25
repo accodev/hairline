@@ -137,7 +137,7 @@ test('the pickers list the models and the thinking levels under the line', () =>
   assert.match(plain(model.lines[2]!), /^ +opus 5\.5 sonnet 5\.5$/)
   assert.deepEqual(model.hits.filter(h => h.row === 2).map(h => h.action), ['model:0', 'model:1'])
   const effort = drawFooter(view({ open: 'effort' }), 160)
-  assert.match(plain(effort.lines[2]!), /thinking {2}off minimal low medium high xhigh$/)
+  assert.match(plain(effort.lines[2]!), /^ +off minimal low medium high xhigh$/)
   const xhigh = effort.hits.find(h => h.action === 'effort:xhigh')!
   assert.equal([...plain(effort.lines[2]!)].slice(xhigh.from, xhigh.to).join(''), 'xhigh')
 })

@@ -1099,10 +1099,9 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       )}
       {open === 'effort' && effort && (
         <Box flexDirection="row" justifyContent="flex-end" width="100%" flexWrap="wrap">
-          <Text dimColor>effort </Text>
           {EFFORT_LEVELS.map((level, i) => (
             <Box key={`effort-${level}`}>
-              <Text> </Text>
+              {i > 0 && <Text> </Text>}
               <Button
                 key={`hairline-effort-${level}`}
                 label={level}

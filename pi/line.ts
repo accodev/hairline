@@ -518,7 +518,7 @@ export function drawFooter(v: View, width: number): { lines: string[]; hits: Hit
     })), width, lines.length, hits, v))
   }
   if (v.open === 'effort') {
-    lines.push(...pickerRows('thinking', v.efforts.map(level => ({
+    lines.push(...pickerRows('', v.efforts.map(level => ({
       text: paint(level, { ...(EFFORT_COLORS[level] === undefined ? { dim: true } : { color: EFFORT_COLORS[level] }), bold: level === v.effort, underline: level === v.effort }),
       action: `effort:${level}`,
     })), width, lines.length, hits, v))

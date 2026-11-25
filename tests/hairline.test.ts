@@ -73,6 +73,7 @@ test('draws workspace, context, limits, model and a copyable session id', { opti
     expect(await ui.find({ key: 'hairline-effort-low' })).toBeUndefined()
     await ui.press({ key: 'hairline-effort' })
     expect(await ui.find({ key: 'hairline-effort-low' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'effort ' })).toBeUndefined()
     await ui.press({ key: `hairline-effort-${surface === 'terminal' ? 'high' : 'xhigh'}` })
     expect(await ui.find({ key: 'hairline-effort-low' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: surface === 'terminal' ? 'high' : 'xhigh' })).toBeDefined()
