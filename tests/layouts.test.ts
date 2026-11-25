@@ -70,6 +70,9 @@ test('the scan head crosses the whole bar in 3 steps and leaves the percent alon
   expect(cells[24]).toEqual({ text: '━', color: 'ansi256(2)', dim: false })
   expect(cells[19]).toEqual({ text: '━', color: 'ansi256(2)', dim: true })
   expect(cells[27]).toEqual({ text: '─', color: '', dim: true })
+  // The fill and the percent keep their color and strength outside the head.
+  expect(cells[0]).toEqual({ text: '━', color: 'ansi256(2)', dim: false })
+  expect(cells[5]).toEqual({ text: '4', color: 'ansi256(3)', dim: false })
   // The percent keeps its text under the tail.
   const early = scanCells(runs, scan, 0.2)
   expect(early.slice(4, 9).map(c => c.text).join('')).toBe(' 41% ')
@@ -85,6 +88,11 @@ test('scan: one bar and one row; the bar lights up while a turn runs, in the pha
   expect(bar.map(t => t.text).join('')).toHaveLength(COLUMNS - 4)
   expect(bar.map(t => t.text).join('')).toMatch(/━ 41% ─/)
   expect(idle.some(t => t.text === '5h 34%')).toBe(true)
+  // The window name is gray; the percent alone takes the severity color.
+  const limit = (await ui.find({ type: 'Text', text: '5h 34%' })) as Node
+  const [name, percent] = limit.children as Node[]
+  expect(name!.props?.dimColor).toBe(true)
+  expect(percent!.props?.color).toBeDefined()
   expect(idle.some(t => t.text === '7d 58%')).toBe(true)
 
   const stream = start()

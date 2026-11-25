@@ -18,15 +18,15 @@ const BODY = 6
 const TAIL = 12
 export const MAX_PASSES = 1.5
 
-// The cells as the bar draws them at `at` passes: idle as given, working every cell dim but the
-// head's. The head and its tail are heavy on the track too, so it shows at any context size.
+// The cells as the bar draws them at `at` passes: every cell as given but the head's. Dim color
+// on a fill slot turns it gray in many terminals, so the fill keeps its color under the scan.
+// The head and its tail are heavy on the track too, so it shows at any context size.
 export function scanCells(runs: BarRun[], scan: BarScan | undefined, at: number): Drawn[] {
   const cells = runs.flatMap(run => Array.from(run.text, ch => ({ ch, color: run.color, isText: run.glyph === 'text' })))
   const head = Math.floor((at % 1) * (cells.length + TAIL))
   return cells.map((cell, i) => {
-    if (!scan) return { text: cell.ch, color: cell.color, dim: !cell.color }
     const d = head - i
-    if (cell.isText || d < 0 || d >= TAIL) return { text: cell.ch, color: cell.color, dim: true }
+    if (!scan || cell.isText || d < 0 || d >= TAIL) return { text: cell.ch, color: cell.color, dim: !cell.color }
     return { text: '━', color: d < HEAD ? scan.head : scan.body, dim: d >= BODY }
   })
 }

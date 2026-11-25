@@ -238,11 +238,15 @@ test('scan: one bar with the percent at the fill edge, one row, and a head in th
   assert.match(row!, /^market-it \(main\) +5h 34% · 7d 58% {3}opus 5\.5 high · 02c6e8dd$/)
   // The limits open the ledger, as the token split does in columns.
   assert.ok(idle.hits.some(h => h.row === 1 && h.action === 'ledger'))
+  // The window name is gray; the percent alone takes the severity color.
+  assert.match(idle.lines[1]!, /\[2m5h \[0m\[\d+m34%/)
   // Thinking: Pi's own thinking color paints the head; a reply's head is slot 10.
   const thinking = drawFooter(view({ ...base, phase: 'sending', scanAt: 0.5, thinking: t => `<${t}>` }), 120).lines[0]!
   assert.match(thinking, /<━━>/)
   const writing = drawFooter(view({ ...base, phase: 'receiving', scanAt: 0.5 }), 120).lines[0]!
   assert.match(writing, /\x1b\[92m━━\x1b\[0m/)
+  // The fill keeps its color under the scan: the first cells are drawn as idle draws them.
+  assert.equal(writing.slice(0, 20), drawFooter(view(base), 120).lines[0]!.slice(0, 20))
   // The head crosses the empty track too: at 0.9 it is past the fill.
   const late = drawFooter(view({ ...base, phase: 'tool', scanAt: 0.9 }), 120).lines[0]!
   assert.match(plain(late), /━ 41% [─┃]+━{6,}/)
