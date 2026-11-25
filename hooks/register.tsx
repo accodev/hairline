@@ -998,7 +998,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     const w = rateLimits.find(l => l.kind === kind)
     return w && (
       <Button key={`hairline-ledger-${label}`} label={`${label} limit`} plain onPress={() => toggle($, 'ledger')}>
-        <Text inverse={open === 'ledger'} color={severity(c, w.percentUsed)}>{`${label} ${Math.round(w.percentUsed)}%`}</Text>
+        <Text inverse={open === 'ledger'}><Text dimColor>{`${label} `}</Text><Text color={severity(c, w.percentUsed)}>{`${Math.round(w.percentUsed)}%`}</Text></Text>
       </Button>
     )
   }

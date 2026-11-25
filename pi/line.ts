@@ -359,8 +359,8 @@ function scanBar(v: View, width: number): string {
     const colors = v.phase === 'receiving' ? [10, 2] : [11, 3]
     cells.forEach((cell, i) => {
       const d = head - i
-      if (cell.isText || d < 0 || d >= SCAN_TAIL) cells[i] = { ...cell, style: { ...cell.style, dim: true } }
-      else cells[i] = { ch: '━', style: { color: d < SCAN_HEAD_CELLS ? colors[0] : colors[1], dim: d >= SCAN_BODY_CELLS }, isThinking: v.phase === 'sending' }
+      // Dim on a fill slot turns it gray in many terminals, so cells outside the head keep their style.
+      if (!cell.isText && d >= 0 && d < SCAN_TAIL) cells[i] = { ch: '━', style: { color: d < SCAN_HEAD_CELLS ? colors[0] : colors[1], dim: d >= SCAN_BODY_CELLS }, isThinking: v.phase === 'sending' }
     })
   }
   let out = ''
@@ -396,7 +396,9 @@ function centerActivity(v: View): string {
 function oneLineRows(v: View, width: number, hits: Hit[]): string[] {
   const limit = (kind: string, label: string) => {
     const w = v.limits.find(l => l.kind === kind)
-    return w ? hoverable(paint(`${label} ${Math.round(w.percentUsed)}%`, { color: severity(w.percentUsed), inverse: v.open === 'ledger' }), 'ledger', v) : ''
+    const open = v.open === 'ledger'
+    // The window name stays gray; only the percent takes the severity color.
+    return w ? hoverable(paint(`${label} `, { dim: true, inverse: open }) + paint(`${Math.round(w.percentUsed)}%`, { color: severity(w.percentUsed), inverse: open }), 'ledger', v) : ''
   }
   const fiveHour = limit('five_hour', '5h')
   const sevenDay = limit('seven_day', '7d')
