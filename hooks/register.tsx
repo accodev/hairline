@@ -50,9 +50,15 @@ export const TOKEN_SPLIT_WIDTH = 4 * COUNT_WIDTH + ' in out read write'.length +
 // The graph fills the activity row to the token split's width, so the column never wraps either row:
 // the phase glyph and its space, the readout, a space, the graph.
 export const GRAPH_CELLS_WIDE = TOKEN_SPLIT_WIDTH - 2 - READOUT_WIDTH_WIDE - 1
-// The first column: the repository over the context. The repository keeps its name; a longer
+// The workspace takes half the row, never less than this. The repository keeps its name; a longer
 // worktree or branch is cut with an ellipsis.
 export const WORKSPACE_WIDTH = 52
+
+// Half the row: the limits, the model and the session ID take some 45 cells, so a wide terminal
+// spends its room on the names.
+export function workspaceWidth(rowCells: number): number {
+  return Math.max(WORKSPACE_WIDTH, Math.floor(rowCells / 2))
+}
 // Middle: the tool call's text and the dot line's cells in the centered activity.
 const MIDDLE_TOOL_WIDTH = 48
 const MIDDLE_GRAPH_CELLS = 12
@@ -526,12 +532,12 @@ async function findRepo($: EngineInterface): Promise<Repo> {
   return { name: basename(cwd), worktree: null, head: null }
 }
 
-// The worktree and the branch cut to fit WORKSPACE_WIDTH with the repository, the parentheses, the
+// The worktree and the branch cut to fit `width` with the repository, the parentheses, the
 // separator and the glyphs. The longer name loses a cell first, so both stay readable.
-function cutWorkspace(folder: string, worktree: string | null, branch: string | null, hasGlyphs: boolean): { worktree: string; branch: string } {
+function cutWorkspace(folder: string, worktree: string | null, branch: string | null, hasGlyphs: boolean, width: number): { worktree: string; branch: string } {
   const glyph = hasGlyphs ? 2 : 0
   const fixed = folder.length + (worktree || branch ? 3 : 0) + (worktree && branch ? 3 : 0) + (worktree ? glyph : 0) + (branch ? glyph : 0)
-  const room = Math.max(0, WORKSPACE_WIDTH - fixed)
+  const room = Math.max(0, width - fixed)
   let w = worktree?.length ?? 0
   let b = branch?.length ?? 0
   while (w + b > room) {
@@ -691,7 +697,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const readoutWidth = isDesktop ? READOUT_WIDTH : READOUT_WIDTH_WIDE
   const graphCells = GRAPH_CELLS_WIDE
   const activityWidth = TOKEN_SPLIT_WIDTH
-  const workspaceCut = cutWorkspace(folder, worktree, branch, hasNerdFont)
+  // Claude Code indents the hint line 2 columns on each side.
+  const workspaceCut = cutWorkspace(folder, worktree, branch, hasNerdFont, workspaceWidth((e.viewport?.columns ?? 0) - 4))
   const pct = context?.percent ?? null
   const now = Date.now()
 

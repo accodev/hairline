@@ -92,6 +92,9 @@ test('a worktree shows after the repository name, next to the branch', () => {
   assert.equal('market-it'.length + 2 + cut.worktree.length + 3 + cut.branch.length + 1, 52)
   assert.match(cut.worktree, /…$/)
   assert.match(cut.branch, /…$/)
+  // A wide footer gives the workspace half the row: at 200 cells both long names fit whole.
+  const wide = plain(drawFooter(view({ worktree: name, branch: `accodev/${name}` }), 200).lines[1]!)
+  assert.ok(wide.startsWith(`market-it (${name} · accodev/${name})`), wide)
 })
 
 test('a narrow footer shortens the workspace first and keeps every figure', () => {
