@@ -141,6 +141,7 @@ export default function hairline(pi: ExtensionAPI) {
   let refresh: ReturnType<typeof setInterval> | null = null
 
   let repo: { name: string; worktree: string | null } = { name: '', worktree: null }
+  let repoCwd = ''
   let model = ''
   let sessionId = ''
   let stats: Stats = { input: 0, write: 0, read: 0, output: 0, costUsd: null }
@@ -354,6 +355,11 @@ export default function hairline(pi: ExtensionAPI) {
         render(width: number): string[] {
           const target = readoutTarget(phase, readoutTps, tools)
           const text = phase === 'sending' ? waitingText(Date.now() - sentAt, target.text.length) : target.text
+          // A move of the session's folder finds the repository again, as Claude Code's /cd does.
+          if (ui && ui.cwd !== repoCwd) {
+            repo = findRepo(ui.cwd)
+            repoCwd = ui.cwd
+          }
           const branch = footerData.getGitBranch()
           const models = pickableModels()
           const drawn = drawFooter({
@@ -484,6 +490,7 @@ export default function hairline(pi: ExtensionAPI) {
     ui = c
     settings = readSettings((pi.getSettings() as Record<string, unknown>).hairline)
     repo = findRepo(c.cwd)
+    repoCwd = c.cwd
     model = c.model?.id ?? ''
     currentModel = c.model
     sessionId = c.sessionManager.getSessionId()

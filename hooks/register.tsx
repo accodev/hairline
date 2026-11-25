@@ -510,12 +510,12 @@ async function findNerdFont($: EngineInterface): Promise<boolean> {
   return false
 }
 
-// The working copy's top folder and its HEAD file, found once: the session's directory never moves.
+// The working copy's top folder and its HEAD file, found again when /cd moves the session.
 type Repo = { name: string; worktree: string | null; head: string | null }
 let repo: Repo | null = null
+let repoCwd = ''
 
-async function findRepo($: EngineInterface): Promise<Repo> {
-  const cwd = await $.session.cwd()
+async function findRepo($: EngineInterface, cwd: string): Promise<Repo> {
   const parts = cwd.replace(/[\\/]+$/, '').split(/[\\/]/)
   for (let n = parts.length; n > 0; n--) {
     const top = parts.slice(0, n).join('/')
@@ -559,7 +559,11 @@ function worktreeOf(gitDir: string, top: string): { name: string; worktree: stri
 // Reads the HEAD file, so the 5 s refresh starts no git process. A detached HEAD shows as git shows it.
 async function readWorkspace($: EngineInterface): Promise<void> {
   try {
-    repo ??= await findRepo($)
+    const cwd = await $.session.cwd()
+    if (!repo || cwd !== repoCwd) {
+      repo = await findRepo($, cwd)
+      repoCwd = cwd
+    }
     const head = repo.head ? await $.fs.read(repo.head).then(text => String(text).trim(), () => null) : null
     const branch = head === null ? null : (head.match(/^ref:\s*refs\/heads\/(.+)$/)?.[1] ?? 'HEAD')
     if (repo.name === session.folder && repo.worktree === session.worktree && branch === session.branch) return
