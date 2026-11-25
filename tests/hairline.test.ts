@@ -40,7 +40,7 @@ test('draws workspace, context, limits, model and a copyable session id', { opti
   on('config.list', () => ({
     value: [
       { key: 'effortLevel', label: 'Effort', kind: 'choice', value: 'medium' },
-      { key: 'model', label: 'Model', kind: 'choice', value: 'opus[1m]', options: ['sonnet', 'opus', 'haiku', 'opus[1m]'], isLocked: false },
+      { key: 'model', label: 'Model', kind: 'choice', value: 'opus[1m]', options: ['default', 'best', 'sonnet', 'opus', 'haiku', 'opus[1m]', 'opusplan'], isLocked: false },
     ] as never,
   }))
   on('config.set', ($, e) => {
@@ -88,7 +88,10 @@ test('draws workspace, context, limits, model and a copyable session id', { opti
     expect(await ui.find({ type: 'Text', text: /^limits/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: ' measuring' })).toBeDefined() // under 6 minutes of readings
     await ui.press({ key: 'hairline-model' })
-    expect(await ui.find({ type: 'Text', text: 'opus[1m]' })).toBeDefined()
+    // Short names, the 1M context as (1m), no label, and no rule picks.
+    expect(await ui.find({ type: 'Text', text: 'opus (1m)' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'model ' })).toBeUndefined()
+    for (const rule of ['default', 'best', 'opusplan']) expect(await ui.find({ key: `hairline-model-${rule}` })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined() // one panel at a time
     await ui.press({ key: 'hairline-model-sonnet' })
     expect(await ui.find({ key: 'hairline-model-haiku' })).toBeUndefined()
