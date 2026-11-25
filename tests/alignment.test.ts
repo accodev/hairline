@@ -20,7 +20,7 @@ async function inline(node: Node | string, drawn: (key: string) => Promise<Node>
 }
 const flat = (node: Node | string): string => (typeof node === 'string' ? node : (node.children ?? []).map(flat).join(''))
 
-test('the activity keeps its width in every phase', async ($, on) => {
+test('the activity keeps its width in every phase', { options: { layout: 'columns' } }, async ($, on) => {
   const clock = mock.clock(on, { now: Date.now() })
   on('session.start', () => ({ cwd: '/home/dev/hairline' }))
   on('fs.stat', () => ({ deny: 'ENOENT' }) as never)

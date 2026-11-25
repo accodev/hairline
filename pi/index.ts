@@ -3,8 +3,8 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
-import { isScrambling, newReadout, newGraph, waitingText, setReadoutKind, readoutFrame, graphText, tickReadout, tickGraph } from './anim.ts'
-import { basename, counted, drawFooter, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, readoutTarget, GRAPH_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
+import { isScrambling, lineText, newReadout, newGraph, scanPasses, scanStep, waitingText, setReadoutKind, readoutFrame, graphText, tickReadout, tickGraph } from './anim.ts'
+import { basename, counted, drawFooter, LAYOUTS, type Layout, MIDDLE_GRAPH_CELLS, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, readoutTarget, GRAPH_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
 const RATE_MIN_WINDOW_MS = 100 // the first chunks' rate, over at least this, so one chunk draws no spike
@@ -32,7 +32,7 @@ const EXTRA_REFRESH_MS = 60_000
 const IDLE_REFRESH_MS = 60_000
 const EXTRA_RETRY_MS = 600_000
 
-type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number }
+type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number; layout: Layout }
 
 function readSettings(raw: unknown): Settings {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
@@ -47,6 +47,7 @@ function readSettings(raw: unknown): Settings {
     cacheTtlMinutes: ttl > 0 ? ttl : 60,
     refreshPerSecond: refresh > 0 ? Math.min(REDRAWS_MAX, Math.max(1, refresh)) : REDRAWS_MAX,
     frameRate: frames > 0 ? Math.min(FRAMES_MAX, Math.max(1, frames)) : 30,
+    layout: (LAYOUTS as readonly string[]).includes(String(o.layout)) ? (String(o.layout) as Layout) : 'scan',
   }
 }
 
@@ -151,6 +152,7 @@ export default function hairline(pi: ExtensionAPI) {
   let tools: Tool[] = []
   let sentAt = 0
   let tps = 0
+  let scanAt = 0 // the scan layout's passes so far
   let readoutTps = 0 // the figure the readout shows, eased every READOUT_EASE_MS
   let lastReadout = 0
   let isStreaming = false
@@ -300,6 +302,7 @@ export default function hairline(pi: ExtensionAPI) {
     timer = setInterval(() => {
       tickReadout(readout, readoutTarget(phase, readoutTps, tools).text.length)
       tickGraph(graph, frameMs, isStreaming ? tps : 0, phase === 'sending')
+      if (phase !== 'idle') scanAt = scanStep(scanAt, frameMs, scanPasses(phase, tps))
       redraw()
       if (!isAnimating() && timer) {
         clearInterval(timer)
@@ -316,7 +319,7 @@ export default function hairline(pi: ExtensionAPI) {
   }
 
   function install(c: ExtensionContext): void {
-    c.ui.setFooter((tui, _theme, footerData) => {
+    c.ui.setFooter((tui, theme, footerData) => {
       requestRender = () => tui.requestRender()
       const unsubscribe = footerData.onBranchChange(() => tui.requestRender())
       // Pi sends pointer moves only to the component under the pointer, so the footer never hears
@@ -374,6 +377,11 @@ export default function hairline(pi: ExtensionAPI) {
             readout: readoutFrame(readout, text),
             graph: graphText(graph, isStreaming, phase === 'sending'),
             sweepMs: graph.sweepMs,
+            layout: settings.layout,
+            scanAt,
+            waitedMs: phase === 'sending' ? Date.now() - sentAt : 0,
+            line: lineText(graph, MIDDLE_GRAPH_CELLS, isStreaming),
+            thinking: text => theme.fg('thinkingText', text),
             isLit: isStreaming || phase === 'sending',
             hasNerdFont,
             open,

@@ -10,7 +10,7 @@ const HINT = {
 
 const SESSION_ID = '02c6e8dd-64d4-4f01-8f7f-3a43b20104a2'
 
-test('draws workspace, context, limits, model and a copyable session id', { options: { currency: 'USD' } }, async ($, on) => {
+test('draws workspace, context, limits, model and a copyable session id', { options: { layout: 'columns', currency: 'USD' } }, async ($, on) => {
   const clock = mock.clock(on)
   // Saved by an earlier load of the module in this session: it wins over the config row.
   const stats = { input: 80, write: 2_000_000, read: 8_300_000, output: 400_000, main: 1_600_000, sub: 800_080, turns: 40, activeMs: 2 * 3_600_000, costStart: 0.82 }
@@ -118,7 +118,7 @@ test('draws workspace, context, limits, model and a copyable session id', { opti
   expect(await working.find({ type: 'Text', text: 'market-it' })).toBeDefined()
 })
 
-test('a worktree shows the repository name, then the worktree and the branch', async ($, on) => {
+test('a worktree shows the repository name, then the worktree and the branch', { options: { layout: 'columns' } }, async ($, on) => {
   const clock = mock.clock(on)
   const top = 'C:/code/hairline/.claude/worktrees/extra-usage'
   const at = (path: string, end: string) => path.replace(/\\/g, '/').endsWith(end)
@@ -145,7 +145,7 @@ test('a worktree shows the repository name, then the worktree and the branch', a
   await ui.unmount()
 })
 
-test('long worktree and branch names are cut to fit the first column on one row', async ($, on) => {
+test('long worktree and branch names are cut to fit the first column on one row', { options: { layout: 'columns' } }, async ($, on) => {
   const clock = mock.clock(on)
   const name = '1245_the-tills-fiscal-module-runs-as'
   const top = `C:/code/market-it/.claude/worktrees/${name}`
@@ -175,7 +175,7 @@ test('long worktree and branch names are cut to fit the first column on one row'
   await ui.unmount()
 })
 
-test('shows cost in the chosen currency at the day\'s ECB rate', { options: { currency: 'rmb' } }, async ($, on) => {
+test('shows cost in the chosen currency at the day\'s ECB rate', { options: { layout: 'columns', currency: 'rmb' } }, async ($, on) => {
   mock.clock(on)
   // Another session saved last: its entry must not replace this one's.
   const other = { sessionId: 'another-session', effort: 'low', stats: { input: 1, write: 0, read: 0, output: 99_000, main: 99_001, sub: 0, turns: 9, activeMs: 1, costStart: 0 } }
@@ -204,7 +204,7 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { cu
   await ui.unmount()
 })
 
-test('marks the cost with a tilde when the rate cannot be fetched', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
+test('marks the cost with a tilde when the rate cannot be fetched', { options: { layout: 'columns', currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
   mock.clock(on)
   mock.store(on, { sessions: [{ sessionId: SESSION_ID, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })
   on('http.fetch', () => ({ value: { status: 503, ok: false, headers: {}, text: '' } }))
@@ -227,7 +227,7 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
   await ui.unmount()
 })
 
-test('a save before the reload restored the counts keeps the token split', async ($, on) => {
+test('a save before the reload restored the counts keeps the token split', { options: { layout: 'columns' } }, async ($, on) => {
   mock.clock(on)
   const stats = { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 }
   const kept = new Map<string, unknown>([['sessions', [{ sessionId: SESSION_ID, stats }]]])
@@ -287,7 +287,7 @@ async function mountWithExtra($: Parameters<Parameters<typeof test>[1]>[0], on: 
   return { ui, clock, state, asked }
 }
 
-test('shows the month\'s extra usage spend from 95% of a limit, only while it is enabled', async ($, on) => {
+test('shows the month\'s extra usage spend from 95% of a limit, only while it is enabled', { options: { layout: 'columns' } }, async ($, on) => {
   const { ui, clock, state, asked } = await mountWithExtra($, on, 95)
   expect(asked.find(a => a.url.includes('/api/oauth/usage'))).toEqual({ url: 'https://api.anthropic.com/api/oauth/usage', auth: 'h1', beta: 'oauth-2025-04-20' })
   expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeDefined()
@@ -302,14 +302,14 @@ test('shows the month\'s extra usage spend from 95% of a limit, only while it is
   await ui.unmount()
 })
 
-test('hides the extra usage spend while both limits are under 95%', async ($, on) => {
+test('hides the extra usage spend while both limits are under 95%', { options: { layout: 'columns' } }, async ($, on) => {
   const { ui } = await mountWithExtra($, on, 94)
   expect(await ui.find({ type: 'Text', text: '94%' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeUndefined()
   await ui.unmount()
 })
 
-test('after a reload with no session.start, the line still reads the limits other sessions move, every minute', async ($, on) => {
+test('after a reload with no session.start, the line still reads the limits other sessions move, every minute', { options: { layout: 'columns' } }, async ($, on) => {
   const clock = mock.clock(on)
   let fiveHour = 25
   on('session.authorize', () => ({ value: { handle: 'h1', kind: 'bearer' } }))
@@ -338,7 +338,7 @@ test('after a reload with no session.start, the line still reads the limits othe
   await ui.unmount()
 })
 
-test('draws the line in the desktop band above the prompt, under other mods and never over a survey', async ($, on) => {
+test('draws the line in the desktop band above the prompt, under other mods and never over a survey', { options: { layout: 'columns' } }, async ($, on) => {
   mock.clock(on)
   mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: null, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))

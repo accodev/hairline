@@ -40,7 +40,7 @@ function overruns(node: Node | string, out: string[] = []): string[] {
   return out
 }
 
-test('at the widest figures every column holds its text on one row', async ($, on) => {
+test('at the widest figures every column holds its text on one row', { options: { layout: 'columns' } }, async ($, on) => {
   const clock = mock.clock(on)
   const name = '1245_the-tills-fiscal-module-runs-as-a-separate-process'
   const top = `C:/code/market-it/.claude/worktrees/${name}`

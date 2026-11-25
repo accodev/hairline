@@ -23,6 +23,9 @@ One name for each area of the line, the same in code, comments, tests, PRs and t
 | model | the model and the effort over the session ID |
 | ledger | the rows a click on the token split opens: cost, tokens, turns, limits |
 | picker | the rows a click on the model or the effort opens |
+| scan | the layout of one bar over one row, a light running along the bar while Claude works |
+| middle | the layout of one bar over one row, the activity centered in the row |
+| columns | the layout of two rows of four columns over the bar |
 
 ## Check
 
@@ -35,7 +38,7 @@ CI runs both on Claude Code 2.1.312 (Node 22). `main` requires the `check` statu
 
 ## Hooks
 
-- `hooks/hooks.json` loads `hooks/register.tsx` only. `hooks/readout.tsx`, `hooks/graph.tsx`, `hooks/spinner.tsx` and `hooks/chip.tsx` are Client modules. Keep them out of `hooks.json`.
+- `hooks/hooks.json` loads `hooks/register.tsx` only. `hooks/readout.tsx`, `hooks/graph.tsx`, `hooks/bar.tsx`, `hooks/spinner.tsx` and `hooks/chip.tsx` are Client modules. Keep them out of `hooks.json`.
 - The desktop app draws a `Button` as a native control in its own font. `chip.tsx` stands in for one there and posts clicks to `ui.message`.
 - Register each event once, or each time with its own matcher. A second `on` of the same event without one throws.
 - Spell `on`, `$`, `$.env` and `$.state` literally. Pass `$` only to module-level functions.
