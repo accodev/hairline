@@ -134,7 +134,7 @@ test('the part under the pointer is underlined', () => {
 
 test('the pickers list the models and the thinking levels under the line', () => {
   const model = drawFooter(view({ open: 'model' }), 160)
-  assert.match(plain(model.lines[2]!), /model {2}opus 5\.5 sonnet 5\.5$/)
+  assert.match(plain(model.lines[2]!), /^ +opus 5\.5 sonnet 5\.5$/)
   assert.deepEqual(model.hits.filter(h => h.row === 2).map(h => h.action), ['model:0', 'model:1'])
   const effort = drawFooter(view({ open: 'effort' }), 160)
   assert.match(plain(effort.lines[2]!), /thinking {2}off minimal low medium high xhigh$/)

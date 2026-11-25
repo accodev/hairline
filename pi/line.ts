@@ -441,7 +441,7 @@ function oneLineRows(v: View, width: number, hits: Hit[]): string[] {
 // A picker's options, right-aligned under the line as Claude Code shows them, wrapped to the width.
 function pickerRows(label: string, options: { text: string; action: string }[], width: number, firstRow: number, hits: Hit[], v: View): string[] {
   const rows: { parts: { text: string; action?: string }[]; width: number }[] = []
-  let current = { parts: [{ text: dim(`${label} `) }] as { text: string; action?: string }[], width: label.length + 1 }
+  let current = { parts: label ? [{ text: dim(`${label} `) }] : [] as { text: string; action?: string }[], width: label ? label.length + 1 : 0 }
   for (const o of options) {
     const w = visibleWidth(o.text) + 1
     if (current.width + w > width && current.parts.length > 1) {
@@ -512,7 +512,7 @@ export function drawFooter(v: View, width: number): { lines: string[]; hits: Hit
   const hits: Hit[] = []
   const lines = mainRows(v, width, hits)
   if (v.open === 'model') {
-    lines.push(...pickerRows('model', v.models.map((m, i) => ({
+    lines.push(...pickerRows('', v.models.map((m, i) => ({
       text: paint(m.label, m.isCurrent ? { bold: true, underline: true } : { dim: true }),
       action: `model:${i}`,
     })), width, lines.length, hits, v))

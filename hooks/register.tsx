@@ -458,9 +458,18 @@ function trackLimits($: EngineInterface, limits: SessionRateLimit[]): void {
   if (changed) save($)
 }
 
+// default, best and opusplan pick a model by a rule; the picker offers the models themselves.
+const RULE_MODELS = ['default', 'best', 'opusplan']
+
+// `opus[1m]` reads `opus (1m)`: the short name, then the context size.
+export function optionLabel(option: string): string {
+  return option.replace(/\[1m\]$/i, ' (1m)')
+}
+
 function readRows(rows: readonly ConfigRow[]): void {
   const row = rows.find(r => r.key === 'model' && r.kind === 'choice')
-  modelRow = row?.options?.length && !row.isLocked ? { value: String(row.value), options: row.options } : null
+  const options = (row?.options ?? []).filter(o => !RULE_MODELS.includes(o))
+  modelRow = options.length && !row!.isLocked ? { value: String(row!.value), options } : null
 }
 
 // Set once per process: the font list does not change while a session runs.
@@ -1067,23 +1076,22 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       {isDesktop ? desktopLine : oneLine}
       {open === 'model' && modelRow && (
         <Box flexDirection="row" justifyContent="flex-end" width="100%" flexWrap="wrap">
-          <Text dimColor>model </Text>
-          {modelRow.options.map(option => (
+          {modelRow.options.map((option, i) => (
             <Box key={`model-${option}`}>
-              <Text> </Text>
+              {i > 0 && <Text> </Text>}
               <Button
                 key={`hairline-model-${option}`}
-                label={option}
+                label={optionLabel(option)}
                 plain
                 onPress={async () => {
                   setOpen($, null)
                   const { deny } = await $.config.set({ key: 'model', value: option })
                   if (!deny && modelRow) modelRow = { ...modelRow, value: option }
-                  $.ui.toast(deny ? `model not changed: ${deny}` : `model ${option}`)
+                  $.ui.toast(deny ? `model not changed: ${deny}` : `model ${optionLabel(option)}`)
                   redraw($)
                 }}
               >
-                <Text bold={option === modelRow!.value} underline={option === modelRow!.value} dimColor={option !== modelRow!.value}>{option}</Text>
+                <Text bold={option === modelRow!.value} underline={option === modelRow!.value} dimColor={option !== modelRow!.value}>{optionLabel(option)}</Text>
               </Button>
             </Box>
           ))}
