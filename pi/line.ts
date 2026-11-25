@@ -18,6 +18,12 @@ export const TOKEN_SPLIT_WIDTH = 4 * COUNT_WIDTH + ' in out read write'.length +
 export const GRAPH_CELLS = TOKEN_SPLIT_WIDTH - 2 - READOUT_WIDTH - 1
 // The first column: the repository over the context, cut with an ellipsis past this width.
 export const WORKSPACE_WIDTH = 52
+
+// Half the row: the limits, the model and the session ID take some 45 cells, so a wide terminal
+// spends its room on the names.
+export function workspaceWidth(rowCells: number): number {
+  return Math.max(WORKSPACE_WIDTH, Math.floor(rowCells / 2))
+}
 // scan: the context bar, scanned while a turn runs, over one row. middle: the bar over one row with
 // the activity centered.
 export const LAYOUTS = ['scan', 'middle'] as const
@@ -417,7 +423,7 @@ function oneLineRows(v: View, width: number, hits: Hit[]): string[] {
   const rightText = right.map(p => p.text).join('')
   const rightWidth = visibleWidth(rightText)
   const full = v.layout === 'middle' ? centerActivity(v) : ''
-  const leftWidth = Math.max(12, Math.min(WORKSPACE_WIDTH, width - rightWidth - (full ? visibleWidth(full) + 4 : 2)))
+  const leftWidth = Math.max(12, Math.min(workspaceWidth(width), width - rightWidth - (full ? visibleWidth(full) + 4 : 2)))
   const left = workspace(v, leftWidth)
   const leftUsed = visibleWidth(left)
   // The activity sits in the middle of the gap between the sides; a short gap cuts it, never them.
