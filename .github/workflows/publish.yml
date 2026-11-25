@@ -1,20 +1,88 @@
 name: publish
 
+# A merge to main that raises the version tags it, releases it on GitHub and stages it on npm.
+# One workflow does all three: a tag or release pushed with GITHUB_TOKEN starts no other workflow.
+# The file keeps its name because npm trusted publishing trusts this workflow by file name.
 on:
-  release:
-    types: [published]
-  # Retries a release whose run failed: a rerun would replay the workflow as it was at the release's tag.
+  push:
+    branches: [main]
+    paths: [.claude-plugin/plugin.json, package.json]
+  # Retries a run that failed after the tag or the release: each step skips what already exists.
   workflow_dispatch:
 
-permissions:
-  contents: read
-  # npm trusted publishing trades the workflow's OIDC token for a publish token: no NPM_TOKEN secret to leak.
-  id-token: write
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+env:
+  # The first build checked to have `claude plugin tag`; the test pin in ci.yml is older.
+  CLAUDE_CODE_VERSION: 2.1.332
 
 jobs:
-  npm:
+  release:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Read the version
+        id: version
+        run: |
+          plugin=$(node -p "require('./.claude-plugin/plugin.json').version")
+          npm=$(node -p "require('./package.json').version")
+          if [ "$plugin" != "$npm" ]; then
+            echo "::error::plugin.json has $plugin and package.json has $npm: bump both"
+            exit 1
+          fi
+          echo "version=$plugin" >> "$GITHUB_OUTPUT"
+
+      - name: Install Claude Code
+        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+      # claude plugin tag checks that plugin.json and the marketplace entry agree before it tags.
+      - name: Tag unless the tag exists
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="hairline--v$VERSION"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "$tag exists"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            claude plugin tag --push .
+          fi
+
+      - name: Release unless the release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="hairline--v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag exists"
+          else
+            gh release create "$tag" --verify-tag --generate-notes --title "hairline $VERSION"
+          fi
+
+  npm:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # npm trusted publishing trades the workflow's OIDC token for a publish token: no NPM_TOKEN secret to leak.
+      id-token: write
     steps:
       - uses: actions/checkout@v5
 
@@ -36,8 +104,7 @@ jobs:
       - name: Run the Pi extension tests
         run: npm run test:pi
 
-      # Releases follow the Claude plugin's version; the Pi package bumps only when the extension changes.
-      # Staged, not published: the version goes live only once a maintainer approves it with 2FA on npmjs.com.
+      # Staged: the version goes live only once a maintainer approves it with 2FA on npmjs.com.
       - name: Stage unless this version is on npm
         run: |
           name=$(node -p "require('./package.json').name")
