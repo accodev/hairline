@@ -32,6 +32,10 @@ const view = (over: Partial<View> = {}): View => ({
   readout: readoutTarget('idle', 0, []).text,
   graph: '⠀⠀⠀⠀⠀⠀',
   sweepMs: 0,
+  layout: 'columns',
+  scanAt: 0,
+  waitedMs: 0,
+  line: '',
   isLit: false,
   hasNerdFont: false,
   open: null,
@@ -231,6 +235,39 @@ test('sending waits with a scan; a stream fills the graph from the bottom', () =
   assert.match(graphText(g, true, false), /^[⣀⣤⣶⣿]{4}$/)
 })
 
+test('scan: one bar with the percent at the fill edge, one row, and a head in the phase color', () => {
+  const limits = [{ kind: 'five_hour', percentUsed: 34 }, { kind: 'seven_day', percentUsed: 58 }]
+  const base = { layout: 'scan' as const, limits, context: { tokens: 410_000, contextWindow: 1_000_000, percent: 41 }, compactAt: 80 }
+  const idle = drawFooter(view(base), 120)
+  const [bar, row] = idle.lines.map(plain)
+  assert.equal(visibleWidth(bar!), 120)
+  assert.match(bar!, /━ 41% ─/)
+  assert.match(row!, /^market-it \(main\) +5h 34% · 7d 58% {3}opus 5\.5 high · 02c6e8dd$/)
+  // The limits open the ledger, as the token split does in columns.
+  assert.ok(idle.hits.some(h => h.row === 1 && h.action === 'ledger'))
+  // Thinking: Pi's own thinking color paints the head; a reply's head is slot 10.
+  const thinking = drawFooter(view({ ...base, phase: 'sending', scanAt: 0.5, thinking: t => `<${t}>` }), 120).lines[0]!
+  assert.match(thinking, /<━━>/)
+  const writing = drawFooter(view({ ...base, phase: 'receiving', scanAt: 0.5 }), 120).lines[0]!
+  assert.match(writing, /\x1b\[92m━━\x1b\[0m/)
+  // The head crosses the empty track too: at 0.9 it is past the fill.
+  const late = drawFooter(view({ ...base, phase: 'tool', scanAt: 0.9 }), 120).lines[0]!
+  assert.match(plain(late), /━ 41% [─┃]+━{6,}/)
+})
+
+test('middle: the activity sits in the middle of the row, in words', () => {
+  const limits = [{ kind: 'five_hour', percentUsed: 34 }, { kind: 'seven_day', percentUsed: 58 }]
+  const base = { layout: 'middle' as const, limits, context: { tokens: 410_000, contextWindow: 1_000_000, percent: 41 }, compactAt: 80 }
+  const row = (over: Partial<View>) => plain(drawFooter(view({ ...base, ...over }), 140).lines[1]!)
+  assert.match(row({ phase: 'sending', waitedMs: 4_160 }), /^market-it \(main\) +✻ thinking 4\.1s +5h 34%/)
+  assert.match(row({ phase: 'receiving', readout: '      82 t/s', line: '⣠⣴⣶' }), /^market-it \(main\) +↓ 82 t\/s ⣠⣴⣶ +5h 34%/)
+  assert.match(row({ phase: 'tool', tools: [{ name: 'Read', arg: 'register.tsx' }, { name: 'Grep', arg: 'TODO' }] }), /^market-it \(main\) +. 2 tools Read register\.tsx · Grep TODO +5h 34%/)
+  // The activity is centered in the row: it starts near the middle whatever its length.
+  const at = row({ phase: 'sending', waitedMs: 4_160 }).indexOf('✻')
+  assert.ok(Math.abs(at - (140 - '✻ thinking 4.1s'.length) / 2) <= 1, `at ${at}`)
+  for (const line of drawFooter(view({ ...base, phase: 'receiving', readout: '      82 t/s', line: '⣠⣴⣶' }), 140).lines) assert.equal(visibleWidth(line), 140)
+})
+
 test('the extension draws the footer from Pi events', async () => {
   const { mkdtempSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
@@ -245,7 +282,7 @@ test('the extension draws the footer from Pi events', async () => {
   const pi = {
     on: (name: string, fn: (e: unknown, c: unknown) => Promise<unknown>) => handlers.set(name, fn),
     registerCommand: (name: string, options: { handler: (args: string, c: unknown) => Promise<void> }) => commands.set(name, options),
-    getSettings: () => ({ hairline: { currency: 'USD' }, compaction: { reserveTokens: 40_000 } }),
+    getSettings: () => ({ hairline: { currency: 'USD', layout: 'columns' }, compaction: { reserveTokens: 40_000 } }),
     getThinkingLevel: () => thinking,
     setThinkingLevel: (level: string) => { thinking = level },
     setModel: async (m: { id: string }) => { picked.push(m.id); return true },

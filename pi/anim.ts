@@ -120,6 +120,29 @@ export function areaLine(samples: number[], at: (v: number) => number): string {
   return Array.from({ length: samples.length / 2 }, (_, cell) => AREA[Math.round(at((samples[cell * 2]! + samples[cell * 2 + 1]!) / 2) * (AREA.length - 1))]!).join('')
 }
 
+// The middle layout's dot line: the newest samples, `cells` braille cells of them.
+export function lineText(s: Graph, cells: number, isLive: boolean): string {
+  const samples = s.bars.slice(-cells * 2)
+  return dotLine(samples, scale(samples, s.top, isLive))
+}
+
+// The scan layout's head, as in hooks/bar.tsx: 2 cells in the head color, 4 in the body color, 6
+// dim. MAX_PASSES keeps a frame's step under 8 cells at 30 frames a second, so the head glides.
+export const SCAN_TAIL = 12
+export const SCAN_HEAD_CELLS = 2
+export const SCAN_BODY_CELLS = 6
+export const MAX_PASSES = 1.5
+const SCAN_TPS_PER_PASS = 80 // a reply at 80 t/s crosses the bar once a second
+
+// Crossings a second: a reply's follow its rate; thinking and a tool have none, so a steady pace.
+export function scanPasses(phase: string, tps: number): number {
+  return phase === 'receiving' ? Math.max(0.2, tps / SCAN_TPS_PER_PASS) : phase === 'sending' ? 0.5 : 0.7
+}
+
+export function scanStep(at: number, frameMs: number, passes: number): number {
+  return at + (frameMs / 1000) * Math.min(MAX_PASSES, passes)
+}
+
 // While a request is out the graph is a plain track, and scanCells places the head on it.
 export function graphText(s: Graph, isLive: boolean, isSweeping: boolean): string {
   if (isSweeping) return '─'.repeat(s.bars.length / 2)

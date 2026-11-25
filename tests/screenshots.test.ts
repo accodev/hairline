@@ -26,7 +26,7 @@ async function inline(node: Node | string, drawn: (key: string) => Promise<Node>
   return { ...node, children: await Promise.all((node.children ?? []).map(child => inline(child, drawn))) }
 }
 
-test('screenshots', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
+test('screenshots', { options: { layout: 'columns', currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
   const clock = mock.clock(on, { now: Date.now() })
   const stats = { input: 1_200, write: 640_000, read: 9_800_000, output: 96_000, main: 610_000, sub: 127_200, turns: 31, activeMs: 5_400_000, costStart: 0 }
   // Readings from 1.5 hours ago, so the panel shows how fast each limit fills.

@@ -1,5 +1,5 @@
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui'
-import { scanCells, SECONDS_WIDTH } from './anim.ts'
+import { scanCells, SCAN_BODY_CELLS, SCAN_HEAD_CELLS, SCAN_TAIL, SECONDS_WIDTH, sendingText } from './anim.ts'
 
 // The footer as text. Pi hands every line to the terminal as is, so the colors are SGR codes for
 // the 16 palette slots: each person's terminal scheme picks the shades, as in Claude Code.
@@ -18,6 +18,13 @@ export const TOKEN_SPLIT_WIDTH = 4 * COUNT_WIDTH + ' in out read write'.length +
 export const GRAPH_CELLS = TOKEN_SPLIT_WIDTH - 2 - READOUT_WIDTH - 1
 // The first column: the repository over the context, cut with an ellipsis past this width.
 export const WORKSPACE_WIDTH = 52
+// scan: the context bar, scanned while a turn runs, over one row. middle: the bar over one row with
+// the activity centered. columns: two rows of four columns over the bar.
+export const LAYOUTS = ['scan', 'middle', 'columns'] as const
+export type Layout = (typeof LAYOUTS)[number]
+// Middle: the tool call's text and the dot line's cells in the centered activity.
+const MIDDLE_TOOL_WIDTH = 48
+export const MIDDLE_GRAPH_CELLS = 12
 const COLUMN_GAP = 3
 const LIMITS_GAP = 6
 const WARN_FROM = 60
@@ -75,6 +82,11 @@ export type View = {
   readout: string // the readout as the animation shows it, READOUT_WIDTH or TOOL_WIDTH cells
   graph: string // the graph, GRAPH_CELLS cells
   sweepMs: number // the time into the sending scan
+  layout: Layout
+  scanAt: number // the scan layout's passes so far; the fraction is the head's place
+  waitedMs: number // how long the request has been out, while sending
+  line: string // the middle layout's dot line, MIDDLE_GRAPH_CELLS cells
+  thinking?: (text: string) => string // Pi's own thinkingText color, from the theme
   isLit: boolean // the graph draws at full strength while a reply streams or a request waits
   hasNerdFont: boolean
   open: 'ledger' | 'model' | 'effort' | null
@@ -384,6 +396,7 @@ function contextBar(pct: number | null, compactAt: number | null, cells: number)
 // tokens, 5h over 7d, the model over the session ID. The first two columns have fixed widths, so
 // nothing moves as figures change; the limits and the model sit right. Then the rule.
 function mainRows(v: View, width: number, hits: Hit[]): string[] {
+  if (v.layout !== 'columns') return oneLineRows(v, width, hits)
   const limits = [limitCell(v, 'five_hour', '5h'), limitCell(v, 'seven_day', '7d') + extraSpend(v)]
   const limitsWidth = Math.max(...limits.map(visibleWidth))
   const right = modelParts(v)
@@ -412,6 +425,109 @@ function mainRows(v: View, width: number, hits: Hit[]): string[] {
     ].join(''), width, '')
   })
   return [...rows, contextBar(v.context?.percent ?? null, v.compactAt, width)]
+}
+
+// Thinking in Pi's own thinking color, as Claude Code thinks in its spinner's; slot 5 without a theme.
+function thinkingPaint(v: View, text: string, isDim = false): string {
+  if (!v.thinking) return paint(text, { color: 5, dim: isDim })
+  return isDim ? `\x1b[2m${v.thinking(text)}\x1b[22m` : v.thinking(text)
+}
+
+// The one-row layouts' bar: the context fill with its percent where the fill ends. In scan, a turn
+// dims every cell and a head runs along the whole bar, the empty track included.
+function scanBar(v: View, width: number): string {
+  const pct = v.context?.percent ?? null
+  const filled = pct === null ? 0 : Math.round((Math.min(pct, 100) / 100) * width)
+  const marker = v.compactAt === null ? -1 : Math.floor((v.compactAt / 100) * width)
+  type Cell = { ch: string; style: Style; isText?: boolean; isThinking?: boolean }
+  const cells: Cell[] = Array.from({ length: width }, (_, i) => {
+    const color = rampColor(((i + 0.5) / width) * 100, v.compactAt)
+    if (i === marker && i < width - 1) return { ch: '┃', style: { color: i < filled ? color : C.marker } }
+    // The track is dim text: slot 8 vanishes on translucent and dark backgrounds.
+    return i < filled ? { ch: '━', style: { color } } : { ch: '─', style: { dim: true } }
+  })
+  if (pct !== null) {
+    const label = ` ${Math.round(pct)}% `
+    const at = Math.max(0, Math.min(filled, width - label.length))
+    for (let i = 0; i < label.length && at + i < width; i++) cells[at + i] = { ch: label[i]!, style: { color: rampColor(pct, v.compactAt) }, isText: true }
+  }
+  if (v.layout === 'scan' && v.phase !== 'idle') {
+    const head = Math.floor((v.scanAt % 1) * (width + SCAN_TAIL))
+    const colors = v.phase === 'receiving' ? [10, 2] : [11, 3]
+    cells.forEach((cell, i) => {
+      const d = head - i
+      if (cell.isText || d < 0 || d >= SCAN_TAIL) cells[i] = { ...cell, style: { ...cell.style, dim: true } }
+      else cells[i] = { ch: '━', style: { color: d < SCAN_HEAD_CELLS ? colors[0] : colors[1], dim: d >= SCAN_BODY_CELLS }, isThinking: v.phase === 'sending' }
+    })
+  }
+  let out = ''
+  let run = ''
+  let key = ''
+  let last: Cell | null = null
+  const flush = () => {
+    if (!run || !last) return
+    out += last.isThinking ? thinkingPaint(v, run, !!last.style.dim) : paint(run, last.style)
+  }
+  for (const cell of cells) {
+    const k = JSON.stringify([cell.style, !!cell.isThinking])
+    if (k !== key) { flush(); run = ''; key = k; last = cell }
+    run += cell.ch
+  }
+  flush()
+  return out
+}
+
+// The middle layout's activity, in words a glance reads.
+function centerActivity(v: View): string {
+  if (v.phase === 'sending') return `${thinkingPaint(v, '✻ thinking ')}${sendingText(v.waitedMs, SECONDS_WIDTH).trim()}`
+  if (v.phase === 'receiving') return `${paint('↓ ', { color: C.ok })}${v.readout.trim().replace(/ t\/s$/, '')}${dim(' t/s ')}${paint(v.line, { color: C.folder })}`
+  if (v.phase === 'tool') {
+    const t = toolReadout(v.tools, MIDDLE_TOOL_WIDTH)
+    return `${phaseGlyph(v)}${t.text.slice(0, t.bright)}${dim(t.text.slice(t.bright).trimEnd())}`
+  }
+  return ''
+}
+
+// The bar, then one row: the workspace left; the limits, the model and the session ID right. The
+// limits open the ledger, as the token split does in columns. Middle centers the activity between.
+function oneLineRows(v: View, width: number, hits: Hit[]): string[] {
+  const limit = (kind: string, label: string) => {
+    const w = v.limits.find(l => l.kind === kind)
+    return w ? hoverable(paint(`${label} ${Math.round(w.percentUsed)}%`, { color: severity(w.percentUsed), inverse: v.open === 'ledger' }), 'ledger', v) : ''
+  }
+  const fiveHour = limit('five_hour', '5h')
+  const sevenDay = limit('seven_day', '7d')
+  const [top, bottom] = modelParts(v)
+  const right: { text: string; action?: string }[] = [
+    { text: fiveHour, action: fiveHour ? 'ledger' : undefined },
+    { text: fiveHour && sevenDay ? SEP : '' },
+    { text: sevenDay, action: sevenDay ? 'ledger' : undefined },
+    { text: extraSpend(v) },
+    { text: top!.length ? '   ' : '' },
+    ...top!,
+    { text: bottom!.length ? SEP : '' },
+    ...bottom!,
+  ].filter(p => p.text)
+  const rightText = right.map(p => p.text).join('')
+  const rightWidth = visibleWidth(rightText)
+  const center = v.layout === 'middle' ? centerActivity(v) : ''
+  const centerWidth = visibleWidth(center)
+  const leftWidth = Math.max(12, Math.min(WORKSPACE_WIDTH, width - rightWidth - (centerWidth ? centerWidth + 4 : 2)))
+  const left = workspace(v, leftWidth)
+  const leftUsed = visibleWidth(left)
+  // The activity sits in the middle of the row, pushed aside only when a side reaches it.
+  const centerAt = Math.min(width - rightWidth - 2 - centerWidth, Math.max(leftUsed + 2, Math.floor((width - centerWidth) / 2)))
+  const rightAt = Math.max(leftUsed + (centerWidth ? 2 + centerWidth + 2 : 2), width - rightWidth)
+  let at = rightAt
+  for (const p of right) {
+    const w = visibleWidth(p.text)
+    if (p.action && at + w <= width) hits.push({ row: 1, from: at, to: at + w, action: p.action })
+    at += w
+  }
+  const row = centerWidth
+    ? left + ' '.repeat(Math.max(2, centerAt - leftUsed)) + center + ' '.repeat(Math.max(2, rightAt - centerAt - centerWidth)) + rightText
+    : left + ' '.repeat(Math.max(2, rightAt - leftUsed)) + rightText
+  return [scanBar(v, width), truncateToWidth(row, width, '')]
 }
 
 // A picker's options, right-aligned under the line as Claude Code shows them, wrapped to the width.

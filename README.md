@@ -41,6 +41,7 @@ Claude Code keeps them in `settings.json`, under `pluginConfigs["hairline@hairli
 
 | Option | Default | Effect |
 |---|---|---|
+| `layout` | `scan` | `scan`: the context bar over one row, with the workspace left and the limits and the model right. While Claude works, a light runs along the bar: orange in Claude's thinking color while it thinks, green while it writes, as fast as the tokens arrive, amber while a tool runs. `middle`: the same bar and row, the activity centered between them in words: thinking and its seconds, tokens per second and a dot line, the running tool. `columns`: two rows of four columns over the bar. In `scan` and `middle` the percent sits on the bar where the fill ends, and a click on the limits opens the ledger. |
 | `currency` | `EUR` | `USD`, `CAD`, `AUD`, `EUR`, `JPY` or `CNY`. |
 | `usdRate` | `0.9` | Value of 1 US dollar in that currency, used when the exchange rate cannot be fetched. |
 | `cacheTtlMinutes` | `60` | Prompt cache lifetime, 60 or 5 as your plan uses. |

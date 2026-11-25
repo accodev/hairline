@@ -64,7 +64,7 @@ function blocks(samples: number[], at: (v: number) => number): string[] {
 
 // sweep: a request is out and nothing has come back. No progress of it can be known, so a bump
 // runs across the line, one pass each SWEEP_MS, to show that the wait goes on.
-export type GraphProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number; scan?: boolean } // scan: the sending scan in place of the bump
+export type GraphProps = { rate: number; live: boolean; sweep?: boolean; color: string; frameMs: number; mono?: boolean; cells?: number; scan?: boolean; line?: boolean } // scan: the sending scan in place of the bump; line: a dot line in place of the filled area
 type Anim = { shown: number; bars: number[]; top: number; sinceShift: number; ticking: boolean; sweepMs?: number }
 
 const SWEEP_MS = 1200
@@ -146,7 +146,7 @@ const Graph: ClientModule<GraphProps, Anim> = (props, surface) => {
           </Box>
         )
       })()
-      : <Text color={props.color} dimColor={!isLit}>{areaLine(samples, at)}</Text>
+      : <Text color={props.color} dimColor={!isLit}>{props.line ? dotLine(samples, at) : areaLine(samples, at)}</Text>
 }
 
 export default Graph

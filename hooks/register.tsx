@@ -1,3 +1,4 @@
+import type { BarRun } from './bar.tsx'
 import type { ConfigRow, EngineInterface, PluginOptions, Register, RenderChildren, RenderElement, RenderInput, RenderSurface, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 const BAR_CELLS = 8
@@ -52,6 +53,11 @@ export const GRAPH_CELLS_WIDE = TOKEN_SPLIT_WIDTH - 2 - READOUT_WIDTH_WIDE - 1
 // The first column: the repository over the context. The repository keeps its name; a longer
 // worktree or branch is cut with an ellipsis.
 export const WORKSPACE_WIDTH = 52
+// Middle: the tool call's text and the dot line's cells in the centered activity.
+const MIDDLE_TOOL_WIDTH = 48
+const MIDDLE_GRAPH_CELLS = 12
+// Scan: the tokens per second at which a reply's head crosses the bar once a second.
+const SCAN_TPS_PER_PASS = 80
 const NERD_FONT_NAME = /nerd ?font|(^|[\s_-])NFM?([\s_.-]|$)/i // CaskaydiaCove Nerd Font, MapleMono-NF-Regular.ttf
 const RATE_LIMIT_WINDOWS = [
   { kind: 'five_hour', label: '5h' },
@@ -69,16 +75,23 @@ const EXTRA_RETRY_MS = 600_000
 type Palette = {
   ok: string; warn: string; bad: string; folder: string; branch: string; track: string; marker: string
   effort: readonly string[]; ramp: readonly string[]
+  // The scan's head and body per phase. Thinking takes Claude's own spinner color, the theme key
+  // claude, so the bar thinks in the color Claude Code thinks in; 16 slots have no orange.
+  thinking: string; scan: Record<'sending' | 'receiving' | 'tool', { head: string; body: string }>
 }
 const TERMINAL_PALETTE: Palette = {
   ok: 'ansi256(2)', warn: 'ansi256(3)', bad: 'ansi256(1)', folder: 'ansi256(4)', branch: 'ansi256(5)', track: 'ansi256(8)', marker: 'ansi256(15)',
   effort: ['ansi256(4)', 'ansi256(5)', 'ansi256(13)', 'ansi256(1)', 'ansi256(9)'],
   ramp: ['ansi256(10)', 'ansi256(2)', 'ansi256(11)', 'ansi256(3)', 'ansi256(1)', 'ansi256(9)'],
+  thinking: 'claude',
+  scan: { sending: { head: 'claude', body: 'claude' }, receiving: { head: 'ansi256(10)', body: 'ansi256(2)' }, tool: { head: 'ansi256(11)', body: 'ansi256(3)' } },
 }
 const THEME_PALETTE: Palette = {
   ok: 'success', warn: 'warning', bad: 'error', folder: 'suggestion', branch: 'merged', track: 'subtle', marker: 'text',
   effort: ['suggestion', 'merged', 'warning', 'error', 'error'],
   ramp: ['success', 'success', 'warning', 'warning', 'error', 'error'],
+  thinking: 'claude',
+  scan: { sending: { head: 'claude', body: 'claude' }, receiving: { head: 'success', body: 'success' }, tool: { head: 'warning', body: 'warning' } },
 }
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 
@@ -140,8 +153,12 @@ const toggle = ($: EngineInterface, panel: Open) => setOpen($, open === panel ? 
 let modelRow: { value: string; options: readonly string[] } | null = null
 let charsPerToken = 4 // the usual English ratio, until the first response measures it
 
-type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number }
-let settings: Settings = { currency: 'EUR', usdRate: 0.9, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30 }
+// scan: the context bar, scanned while a turn runs, over one row. middle: the bar over one row with the
+// activity centered. columns: two rows of four columns over the bar.
+export const LAYOUTS = ['scan', 'middle', 'columns'] as const
+export type Layout = (typeof LAYOUTS)[number]
+type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number; layout: Layout }
+let settings: Settings = { currency: 'EUR', usdRate: 0.9, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30, layout: 'scan' }
 
 // Set once a day: the ECB publishes one rate per working day.
 let exchange: { currency: string; rate: number; fetchedOn: string } | null = null
@@ -164,6 +181,7 @@ function readSettings(options: PluginOptions): Settings {
     cacheTtlMinutes: ttl > 0 ? ttl : 60,
     refreshPerSecond: refresh > 0 ? Math.min(HINT_REDRAWS_MAX, Math.max(1, refresh)) : HINT_REDRAWS_MAX,
     frameRate: frames > 0 ? Math.min(FRAMES_MAX, Math.max(1, frames)) : 30,
+    layout: (LAYOUTS as readonly string[]).includes(String(options.layout)) ? (String(options.layout) as Layout) : 'scan',
   }
 }
 
@@ -172,6 +190,18 @@ const counted = (s: Stats) => s.input + s.write + s.read + s.output // every tok
 
 function severity(c: Palette, pct: number): string {
   return pct >= BAD_FROM ? c.bad : pct >= WARN_FROM ? c.warn : c.ok
+}
+
+// Cells into runs of one glyph and color; the label's cells become one text run.
+function joinRuns(cells: { glyph: string; color: string }[], label: string, at: number): BarRun[] {
+  const runs: BarRun[] = []
+  cells.forEach((cell, i) => {
+    const ch = cell.glyph === 'text' ? label[i - at]! : cell.glyph
+    const last = runs[runs.length - 1]
+    if (last && last.glyph === cell.glyph && last.color === cell.color) last.text += ch
+    else runs.push({ glyph: cell.glyph, color: cell.color, text: ch })
+  })
+  return runs
 }
 
 function filledCells(pct: number): number {
@@ -659,13 +689,13 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const Sep = () => <Text dimColor> · </Text>
   // The number and " t/s" while a reply streams, the phase's word otherwise: readoutWidth cells either
   // way. A running tool fills the readout and the graph's cells too; readout.tsx counts the sending time.
-  const tool = toolReadout(session.tools, isDesktop ? TOOL_WIDTH : readoutWidth + 1 + graphCells)
+  const columnTool = toolReadout(session.tools, isDesktop ? TOOL_WIDTH : readoutWidth + 1 + graphCells)
   // Sending in the terminal: the readout takes the graph's first SECONDS_WIDTH cells for the time
   // after "waiting...", and the scan runs in the rest.
   const isWaitingWide = !isDesktop && session.phase === 'sending'
   const readoutText = isWaitingWide ? ' '.repeat(readoutWidth + SECONDS_WIDTH) : session.phase === 'receiving'
     ? `${pad(String(Math.min(TPS_MAX, session.readoutTps)), readoutWidth - 4)} t/s`
-    : session.phase === 'tool' ? tool.text : pad(PHASE_WORDS[session.phase], readoutWidth)
+    : session.phase === 'tool' ? columnTool.text : pad(PHASE_WORDS[session.phase], readoutWidth)
   const isToolShown = session.phase === 'tool'
   const Phase = () => {
     switch (session.phase) {
@@ -814,7 +844,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
       {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
       {Client ? (
-        <Client key="hairline-readout" module="./readout.tsx" props={{ text: readoutText, kind: session.phase, bright: session.phase === 'receiving' ? readoutWidth - 4 : isToolShown ? tool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
+        <Client key="hairline-readout" module="./readout.tsx" props={{ text: readoutText, kind: session.phase, bright: session.phase === 'receiving' ? readoutWidth - 4 : isToolShown ? columnTool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
       ) : isToolShown ? <Text dimColor>{readoutText}</Text> : session.phase === 'receiving' ? (
         <Box>
           <Text>{pad(String(Math.min(TPS_MAX, session.readoutTps)), readoutWidth - 4)}</Text>
@@ -939,20 +969,110 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     if (last && last.glyph === glyph && last.color === color) last.text += glyph
     else contextBarRuns.push({ glyph, color, text: glyph })
   }
+  const workspaceRow = (
+    <Box flexDirection="row" height={1} overflow="hidden" flexShrink={0}>
+      <Text color={c.folder}>{folder}</Text>
+      {(worktree || branch) && <Text dimColor> (</Text>}
+      {worktree && <Text dimColor>{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${workspaceCut.worktree}`}</Text>}
+      {worktree && branch && <Text dimColor> · </Text>}
+      {branch && hasNerdFont && <Text color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>}
+      {branch && <Text color={c.branch}>{workspaceCut.branch}</Text>}
+      {(worktree || branch) && <Text dimColor>)</Text>}
+    </Box>
+  )
+
+  // The one-row layouts, scan and middle. The percent rides the bar where the fill ends.
+  const barRuns: BarRun[] = (() => {
+    const cells = contextBarRuns.flatMap(run => Array.from(run.text, () => ({ glyph: run.glyph, color: run.color })))
+    if (pct !== null) {
+      const label = ` ${Math.round(pct)}% `
+      const at = Math.max(0, Math.min(contextBarFilled, cells.length - label.length))
+      for (let i = 0; i < label.length && at + i < cells.length; i++) cells[at + i] = { glyph: 'text', color: rampColor(c, pct, compactAt) }
+      return joinRuns(cells, label, at)
+    }
+    return joinRuns(cells, '', 0)
+  })()
+  const frameMs = Math.round(1000 / settings.frameRate)
+  const phaseScan = session.phase === 'idle' ? null : c.scan[session.phase]
+  // A reply crosses the bar once a second at 80 t/s; thinking and a tool have no rate, so a steady pace.
+  const passes = session.phase === 'receiving' ? Math.max(0.2, tokensPerSecond / SCAN_TPS_PER_PASS) : session.phase === 'sending' ? 0.5 : 0.7
+  const barRow = settings.layout === 'scan' && Client ? (
+    <Client key="hairline-bar" module="./bar.tsx" props={{ runs: barRuns, frameMs, ...(phaseScan ? { scan: { ...phaseScan, passes } } : {}) }} />
+  ) : (
+    <Box width="100%" overflow="hidden" flexWrap="nowrap">
+      {barRuns.map((run, i) => run.color
+        ? <Text key={`rule-${i}`} color={run.color} wrap="truncate-end">{run.text}</Text>
+        : <Text key={`rule-${i}`} dimColor wrap="truncate-end">{run.text}</Text>)}
+    </Box>
+  )
+  // The ledger opens from the limits: the token split is not on these rows.
+  const limitButton = (kind: string, label: string) => {
+    const w = rateLimits.find(l => l.kind === kind)
+    return w && (
+      <Button key={`hairline-ledger-${label}`} label={`${label} limit`} plain onPress={() => toggle($, 'ledger')}>
+        <Text inverse={open === 'ledger'} color={severity(c, w.percentUsed)}>{`${label} ${Math.round(w.percentUsed)}%`}</Text>
+      </Button>
+    )
+  }
+  const hasBothLimits = RATE_LIMIT_WINDOWS.every(({ kind }) => rateLimits.some(l => l.kind === kind))
+  const rightGroup = (
+    <Box flexShrink={0}>
+      {limitButton('five_hour', '5h')}
+      {hasBothLimits && <Sep />}
+      {limitButton('seven_day', '7d')}
+      {extraSpend}
+      {modelControls && <Text>   </Text>}
+      {modelControls}
+      {sessionIdControl && <Sep />}
+      {sessionIdControl}
+    </Box>
+  )
+  // Middle: the activity in a fixed place between the pinned sides, in words a glance reads.
+  const tool = toolReadout(session.tools, MIDDLE_TOOL_WIDTH)
+  const centerActivity = session.phase === 'sending' ? (
+    <Box flexShrink={0}>
+      <Text color={c.thinking}>✻ thinking </Text>
+      {Client && <Client key="hairline-readout" module="./readout.tsx" props={{ text: ' '.repeat(SECONDS_WIDTH), kind: 'sending', bright: SECONDS_WIDTH, frameMs, sentAt: session.sentAt }} />}
+    </Box>
+  ) : session.phase === 'receiving' ? (
+    <Box flexShrink={0}>
+      <Text color={c.ok}>↓ </Text>
+      <Text>{String(Math.min(TPS_MAX, session.readoutTps))}</Text>
+      <Text dimColor> t/s </Text>
+      {Client && <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs, cells: MIDDLE_GRAPH_CELLS, line: true }} />}
+    </Box>
+  ) : session.phase === 'tool' ? (
+    <Box flexShrink={0}>
+      <Phase />
+      <Text>{tool.text.slice(0, tool.bright)}</Text>
+      <Text dimColor>{tool.text.slice(tool.bright).trimEnd()}</Text>
+    </Box>
+  ) : <Text> </Text>
+  const oneRow = settings.layout === 'middle' ? (
+    <Box flexDirection="row" width="100%" height={1}>
+      <Box flexGrow={1} width={0} overflow="hidden">{workspaceRow}</Box>
+      <Box flexShrink={0} paddingLeft={2} paddingRight={2}>{centerActivity}</Box>
+      <Box flexGrow={1} width={0} overflow="hidden" justifyContent="flex-end">{rightGroup}</Box>
+    </Box>
+  ) : (
+    <Box flexDirection="row" width="100%" height={1}>
+      <Box flexGrow={1} overflow="hidden">{workspaceRow}</Box>
+      {rightGroup}
+    </Box>
+  )
+  const oneLine = (
+    <Box flexDirection="column" width="100%">
+      {barRow}
+      {oneRow}
+    </Box>
+  )
+
   const terminalLine = (
     <Box flexDirection="column" width="100%">
       <Box flexDirection="row" width="100%" flexWrap="wrap">
         <Box flexDirection="column" width={WORKSPACE_WIDTH} flexShrink={0} overflow="hidden" marginRight={3}>
           {/* Cut here, to the cell: left to flex, the short pieces shrank to nothing and wrapped. */}
-          <Box flexDirection="row" height={1} overflow="hidden">
-            <Text color={c.folder}>{folder}</Text>
-            {(worktree || branch) && <Text dimColor> (</Text>}
-            {worktree && <Text dimColor>{`${hasNerdFont ? `${NERD_GLYPHS.worktree} ` : ''}${workspaceCut.worktree}`}</Text>}
-            {worktree && branch && <Text dimColor> · </Text>}
-            {branch && hasNerdFont && <Text color={c.branch}>{`${NERD_GLYPHS.branch} `}</Text>}
-            {branch && <Text color={c.branch}>{workspaceCut.branch}</Text>}
-            {(worktree || branch) && <Text dimColor>)</Text>}
-          </Box>
+          {workspaceRow}
           <Box flexShrink={0} height={1} overflow="hidden">
             {pct === null ? <Text dimColor>--%</Text> : <Text color={rampColor(c, pct, compactAt)}>{`${Math.round(pct)}%`}</Text>}
             <Text dimColor>{` ${context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`}`}</Text>
@@ -984,7 +1104,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
 
   const line = (
     <Box flexDirection="column">
-      {isDesktop ? desktopLine : terminalLine}
+      {isDesktop ? desktopLine : settings.layout === 'columns' ? terminalLine : oneLine}
       {open === 'model' && modelRow && (
         <Box flexDirection="row" justifyContent="flex-end" width="100%" flexWrap="wrap">
           <Text dimColor>model </Text>
