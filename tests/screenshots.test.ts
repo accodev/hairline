@@ -26,7 +26,7 @@ async function inline(node: Node | string, drawn: (key: string) => Promise<Node>
   return { ...node, children: await Promise.all((node.children ?? []).map(child => inline(child, drawn))) }
 }
 
-test('screenshots', { options: { layout: 'columns', currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
+test('screenshots', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
   const clock = mock.clock(on, { now: Date.now() })
   const stats = { input: 1_200, write: 640_000, read: 9_800_000, output: 96_000, main: 610_000, sub: 127_200, turns: 31, activeMs: 5_400_000, costStart: 0 }
   // Readings from 1.5 hours ago, so the panel shows how fast each limit fills.
@@ -92,9 +92,9 @@ test('screenshots', { options: { layout: 'columns', currency: 'EUR', usdRate: 0.
   await $.turn.complete({ turnId: 'screenshots', answer: '', durationMs: 3_000, isAborted: false, reason: 'answer' })
   await ui.advance(3_000) // the graph falls back once the reply ends
   await shoot('line')
-  await ui.press({ key: 'hairline-token-split' })
+  await ui.press({ key: 'hairline-ledger-5h' })
   await shoot('ledger')
-  await ui.press({ key: 'hairline-token-split' })
+  await ui.press({ key: 'hairline-ledger-5h' })
   await ui.press({ key: 'hairline-effort' })
   await shoot('effort-picker')
   await ui.unmount()

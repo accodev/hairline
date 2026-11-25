@@ -12,20 +12,16 @@ One name for each area of the line, the same in code, comments, tests, PRs and t
 
 | Name | The area |
 |---|---|
-| workspace | the repository, the worktree and the branch, top left |
-| context | the context use under it: percent, size, the auto-compact point |
-| context bar | the bar under the two rows, across the terminal |
-| activity | the row of the phase glyph, the readout and the graph |
-| readout | the activity's text: the seconds, the tokens per second, the running tool |
-| graph | the activity's braille chart |
-| token split | `in / out / read / write` under the activity |
-| limits | 5h over 7d, and the extra usage spend once a window is full |
-| model | the model and the effort over the session ID |
-| ledger | the rows a click on the token split opens: cost, tokens, turns, limits |
+| context bar | the bar across the terminal: the context fill, its percent where the fill ends, the auto-compact mark |
+| workspace | the repository, the worktree and the branch, left on the row under the bar |
+| activity | what Claude is doing: thinking, writing, a tool. scan shows it on the bar, middle in the row |
+| scan | the layout where a light runs along the context bar while Claude works |
+| middle | the layout where the activity sits in words in the middle of the row |
+| limits | 5h and 7d on the right of the row, and the extra usage spend from 95% of a window |
+| model | the model, the effort and the session ID after the limits |
+| ledger | the rows a click on the limits opens: cost, tokens, turns, limits |
+| token split | `in / out / read / write` in the ledger |
 | picker | the rows a click on the model or the effort opens |
-| scan | the layout of one bar over one row, a light running along the bar while Claude works |
-| middle | the layout of one bar over one row, the activity centered in the row |
-| columns | the layout of two rows of four columns over the bar |
 
 ## Check
 

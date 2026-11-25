@@ -154,8 +154,8 @@ let modelRow: { value: string; options: readonly string[] } | null = null
 let charsPerToken = 4 // the usual English ratio, until the first response measures it
 
 // scan: the context bar, scanned while a turn runs, over one row. middle: the bar over one row with the
-// activity centered. columns: two rows of four columns over the bar.
-export const LAYOUTS = ['scan', 'middle', 'columns'] as const
+// activity centered.
+export const LAYOUTS = ['scan', 'middle'] as const
 export type Layout = (typeof LAYOUTS)[number]
 type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number; layout: Layout }
 let settings: Settings = { currency: 'EUR', usdRate: 0.9, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30, layout: 'scan' }
@@ -938,19 +938,6 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     </Box>
   )
 
-  // The terminal: four columns over two rows, each column a pair read top to bottom, then the
-  // context bar across the whole terminal. With a cell per column, the bar is the finest it can be.
-  const limitCell = (kind: string, label: string) => {
-    const w = rateLimits.find(l => l.kind === kind)
-    if (!w) return <Text> </Text>
-    return (
-      <Box flexShrink={0}>
-        <Text dimColor>{`${label} `}</Text>
-        <Percent value={w.percentUsed} />
-        {w.resetsAt && <Text dimColor>{` ${!isDesktop && hasNerdFont ? `${NERD_GLYPHS.reset} ` : ''}${untilReset(w.resetsAt)}`}</Text>}
-      </Box>
-    )
-  }
   // Claude Code indents the hint line 2 columns on each side: a rule of the full width wraps.
   const contextBarCells = Math.max(BAR_CELLS, (e.viewport?.columns ?? 0) - 4)
   const contextBarFilled = pct === null ? 0 : Math.round((Math.min(pct, 100) / 100) * contextBarCells)
@@ -996,7 +983,8 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const phaseScan = session.phase === 'idle' ? null : c.scan[session.phase]
   // A reply crosses the bar once a second at 80 t/s; thinking and a tool have no rate, so a steady pace.
   const passes = session.phase === 'receiving' ? Math.max(0.2, tokensPerSecond / SCAN_TPS_PER_PASS) : session.phase === 'sending' ? 0.5 : 0.7
-  const barRow = settings.layout === 'scan' && Client ? (
+  // The scan runs in the terminal's Client; other surfaces draw the bar still.
+  const barRow = settings.layout === 'scan' && Client && e.surface === 'terminal' ? (
     <Client key="hairline-bar" module="./bar.tsx" props={{ runs: barRuns, frameMs, ...(phaseScan ? { scan: { ...phaseScan, passes } } : {}) }} />
   ) : (
     <Box width="100%" overflow="hidden" flexWrap="nowrap">
@@ -1020,6 +1008,11 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       {limitButton('five_hour', '5h')}
       {hasBothLimits && <Sep />}
       {limitButton('seven_day', '7d')}
+      {rateLimits.length === 0 && (
+        <Button key="hairline-ledger-tokens" label="ledger" plain onPress={() => toggle($, 'ledger')}>
+          <Text inverse={open === 'ledger'} dimColor>{tokens === 0 ? '--- tok' : `${human(tokens)} tok`}</Text>
+        </Button>
+      )}
       {extraSpend}
       {modelControls && <Text>   </Text>}
       {modelControls}
@@ -1050,9 +1043,11 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   ) : <Text> </Text>
   const oneRow = settings.layout === 'middle' ? (
     <Box flexDirection="row" width="100%" height={1}>
-      <Box flexGrow={1} width={0} overflow="hidden">{workspaceRow}</Box>
-      <Box flexShrink={0} paddingLeft={2} paddingRight={2}>{centerActivity}</Box>
-      <Box flexGrow={1} width={0} overflow="hidden" justifyContent="flex-end">{rightGroup}</Box>
+      <Box flexShrink={1} overflow="hidden">{workspaceRow}</Box>
+      <Box flexGrow={1} />
+      <Box flexShrink={1} overflow="hidden" paddingLeft={2} paddingRight={2}>{centerActivity}</Box>
+      <Box flexGrow={1} />
+      {rightGroup}
     </Box>
   ) : (
     <Box flexDirection="row" width="100%" height={1}>
@@ -1067,44 +1062,9 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     </Box>
   )
 
-  const terminalLine = (
-    <Box flexDirection="column" width="100%">
-      <Box flexDirection="row" width="100%" flexWrap="wrap">
-        <Box flexDirection="column" width={WORKSPACE_WIDTH} flexShrink={0} overflow="hidden" marginRight={3}>
-          {/* Cut here, to the cell: left to flex, the short pieces shrank to nothing and wrapped. */}
-          {workspaceRow}
-          <Box flexShrink={0} height={1} overflow="hidden">
-            {pct === null ? <Text dimColor>--%</Text> : <Text color={rampColor(c, pct, compactAt)}>{`${Math.round(pct)}%`}</Text>}
-            <Text dimColor>{` ${context?.tokens === undefined ? '---/---' : `${human(context.tokens)}/${human(context.window)}`}`}</Text>
-            {compactAt !== null && <Text dimColor>{` · compacts at ${Math.round(compactAt)}%`}</Text>}
-          </Box>
-        </Box>
-        <Box flexDirection="column" width={activityWidth} flexShrink={0} overflow="hidden" marginRight={3}>
-          {activity}
-          <Box flexShrink={0}>{tokenSplitControl}</Box>
-        </Box>
-        {/* The limits belong to the account, not this session: they sit right, beside the model. */}
-        <Box flexGrow={1} />
-        <Box flexDirection="column" flexShrink={0} marginRight={6}>
-          {limitCell('five_hour', '5h')}
-          <Box flexShrink={0}>{limitCell('seven_day', '7d')}{extraSpend}</Box>
-        </Box>
-        <Box flexDirection="column" flexShrink={0} alignItems="flex-end">
-          {modelControls || <Text> </Text>}
-          {sessionIdControl || <Text> </Text>}
-        </Box>
-      </Box>
-      <Box width="100%" overflow="hidden" flexWrap="nowrap">
-        {contextBarRuns.map((run, i) => run.color
-          ? <Text key={`rule-${i}`} color={run.color} wrap="truncate-end">{run.text}</Text>
-          : <Text key={`rule-${i}`} dimColor wrap="truncate-end">{run.text}</Text>)}
-      </Box>
-    </Box>
-  )
-
   const line = (
     <Box flexDirection="column">
-      {isDesktop ? desktopLine : settings.layout === 'columns' ? terminalLine : oneLine}
+      {isDesktop ? desktopLine : oneLine}
       {open === 'model' && modelRow && (
         <Box flexDirection="row" justifyContent="flex-end" width="100%" flexWrap="wrap">
           <Text dimColor>model </Text>

@@ -7,7 +7,7 @@
     "layout": {
       "type": "string",
       "title": "Layout",
-      "description": "scan: the context bar over one row; while Claude works, a light runs along the bar, as fast as the tokens arrive. middle: the bar over one row, the activity in the middle. columns: two rows of four columns over the bar.",
+      "description": "scan: the context bar over one row; while Claude works, a light runs along the bar, as fast as the tokens arrive. middle: the bar over one row, the activity in the middle.",
       "default": "scan"
     },
     "currency": {

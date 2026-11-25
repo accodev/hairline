@@ -381,7 +381,8 @@ export default function hairline(pi: ExtensionAPI) {
             scanAt,
             waitedMs: phase === 'sending' ? Date.now() - sentAt : 0,
             line: lineText(graph, MIDDLE_GRAPH_CELLS, isStreaming),
-            thinking: text => theme.fg('thinkingText', text),
+            // A theme without fg (a test's stub) falls back to palette slot 5.
+            ...(typeof theme?.fg === 'function' ? { thinking: (text: string) => theme.fg('thinkingText', text) } : {}),
             isLit: isStreaming || phase === 'sending',
             hasNerdFont,
             open,

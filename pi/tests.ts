@@ -32,7 +32,7 @@ const view = (over: Partial<View> = {}): View => ({
   readout: readoutTarget('idle', 0, []).text,
   graph: '⠀⠀⠀⠀⠀⠀',
   sweepMs: 0,
-  layout: 'columns',
+  layout: 'scan',
   scanAt: 0,
   waitedMs: 0,
   line: '',
@@ -51,16 +51,14 @@ const view = (over: Partial<View> = {}): View => ({
   ...over,
 })
 
-test('draws two rows of columns over a rule across the footer', () => {
+test('draws the bar over one row across the footer', () => {
   const lines = drawFooter(view(), 160).lines
-  assert.equal(lines.length, 3)
+  assert.equal(lines.length, 2)
   for (const line of lines) assert.equal(visibleWidth(line), 160)
-  const [top, bottom, bar] = lines.map(plain) as [string, string, string]
-  // Idle, the readout is blank.
-  assert.match(top, /^market-it \(main\) {40,}5h 38% \S+ +opus 5\.5 high$/)
-  assert.match(bottom, /^52% 104k\/200k · compacts at 80% +80 in \/ +400k out \/ +8\.3M read \/ +2M write +7d 91% 3d +02c6e8dd$/)
-  // 52% of 160 cells, and the auto-compact mark at 80%: cell 128.
-  assert.match(bar, /^━{83}─{45}┃─{31}$/)
+  const [bar, row] = lines.map(plain) as [string, string]
+  // 52% of 160 cells, the percent where the fill ends, and the auto-compact mark at 80%: cell 128.
+  assert.match(bar, /^━{83} 52% ─{40}┃─{31}$/)
+  assert.match(row, /^market-it \(main\) +5h 38% · 7d 91% {3}opus 5\.5 high · 02c6e8dd$/)
 })
 
 test('the month\'s extra usage spend follows the limits, only while it is enabled and a window is at 95%', () => {
@@ -69,7 +67,7 @@ test('the month\'s extra usage spend follows the limits, only while it is enable
   assert.deepEqual(extra, { used: 9.72, limit: 100, currency: 'EUR', pct: 9.72 })
   assert.doesNotMatch(drawFooter(view({ extra }), 180).lines.map(plain).join('\n'), /extra/)
   const near = (pct: number) => view({ extra, limits: [{ kind: 'five_hour', percentUsed: 38 }, { kind: 'seven_day', percentUsed: pct, resetsAt: new Date(Date.now() + 3 * 86_400_000).toISOString() }] })
-  assert.match(plain(drawFooter(near(95), 180).lines[1]!), /7d 95% 3d · extra €\s?9[.,]72\/€\s?100 /)
+  assert.match(plain(drawFooter(near(95), 180).lines[1]!), /7d 95% · extra €\s?9[.,]72\/€\s?100 /)
   assert.doesNotMatch(drawFooter(near(94), 180).lines.map(plain).join('\n'), /extra/)
   assert.equal(readExtraBody(body(false)), null)
   assert.equal(readExtraBody('{"extra_usage":null}'), null)
@@ -84,7 +82,7 @@ test('the month\'s extra usage spend follows the limits, only while it is enable
 test('a worktree shows after the repository name, next to the branch', () => {
   assert.deepEqual(worktreeOf('C:/code/hairline/.git/worktrees/extra-usage', 'C:/code/hairline/.claude/worktrees/extra-usage'), { name: 'hairline', worktree: 'extra-usage' })
   assert.deepEqual(worktreeOf('/home/dev/app/.git/modules/lib', '/home/dev/app/lib'), { name: 'lib', worktree: null })
-  const top = (v: Partial<View>) => plain(drawFooter(view({ folder: 'hairline', worktree: 'extra-usage', branch: 'feat/x', ...v }), 180).lines[0]!)
+  const top = (v: Partial<View>) => plain(drawFooter(view({ folder: 'hairline', worktree: 'extra-usage', branch: 'feat/x', ...v }), 180).lines[1]!)
   assert.match(top({}), /^hairline \(extra-usage · feat\/x\) /)
   assert.match(top({ hasNerdFont: true }), /^hairline \(\uf07b extra-usage · \ue725 feat\/x\) /)
   assert.match(top({ worktree: null, branch: null }), /^hairline /)
@@ -97,70 +95,69 @@ test('a worktree shows after the repository name, next to the branch', () => {
 })
 
 test('a narrow footer shortens the workspace first and keeps every figure', () => {
-  const [top, bottom] = drawFooter(view({ folder: 'a-very-long-folder-name-for-a-repository', worktree: 'a-long-worktree' }), 140).lines.map(plain) as [string, string]
-  assert.equal(visibleWidth(top), 140)
-  assert.match(top, /…/)
-  assert.match(bottom, /7d 91%/)
-  assert.match(bottom, /02c6e8dd$/)
+  const [, row] = drawFooter(view({ folder: 'a-very-long-folder-name-for-a-repository', worktree: 'a-long-worktree' }), 100).lines.map(plain) as [string, string]
+  assert.equal(visibleWidth(row), 100)
+  assert.match(row, /…/)
+  assert.match(row, /7d 91%/)
+  assert.match(row, /02c6e8dd$/)
 })
 
 test('a narrow footer keeps the model, the thinking level and the session id', () => {
-  for (const width of [120, 140, 160]) {
-    const [top, bottom] = drawFooter(view(), width).lines.map(plain) as [string, string]
-    assert.equal(visibleWidth(top), width)
-    assert.match(top, /opus 5\.5 high$/)
-    assert.match(bottom, /02c6e8dd$/)
+  for (const width of [100, 120, 160]) {
+    const [, row] = drawFooter(view(), width).lines.map(plain) as [string, string]
+    assert.equal(visibleWidth(row), width)
+    assert.match(row, /opus 5\.5 high · 02c6e8dd$/)
   }
 })
 
-test('the token split, the model, the thinking level and the session id are clickable', () => {
+test('the limits, the model, the thinking level and the session id are clickable', () => {
   const { lines, hits } = drawFooter(view(), 160)
   const at = (action: string) => {
     const hit = hits.find(h => h.action === action)!
     return [...plain(lines[hit.row]!)].slice(hit.from, hit.to).join('').trim()
   }
-  assert.match(at('ledger'), /^80 in \/ +400k out \/ +8\.3M read \/ +2M write$/)
+  // The limits open the ledger; without limits the token total does.
+  assert.equal(at('ledger'), '5h 38%')
   assert.equal(at('model'), 'opus 5.5')
   assert.equal(at('effort'), 'high')
   assert.equal(at('id'), '02c6e8dd')
+  const bare = drawFooter(view({ limits: [] }), 160)
+  const hit = bare.hits.find(h => h.action === 'ledger')!
+  assert.equal([...plain(bare.lines[hit.row]!)].slice(hit.from, hit.to).join(''), '10.7M tok')
 })
 
 test('the part under the pointer is underlined', () => {
-  const line = drawFooter(view({ hover: 'model' }), 160).lines[0]!
+  const line = drawFooter(view({ hover: 'model' }), 160).lines[1]!
   assert.ok(line.includes(`${chr}[4mopus 5.5${chr}[0m`))
-  assert.ok(!drawFooter(view(), 160).lines[0]!.includes(`${chr}[4m`))
+  assert.ok(!drawFooter(view(), 160).lines[1]!.includes(`${chr}[4m`))
 })
 
 test('the pickers list the models and the thinking levels under the line', () => {
   const model = drawFooter(view({ open: 'model' }), 160)
-  assert.match(plain(model.lines[3]!), /model {2}opus 5\.5 sonnet 5\.5$/)
-  assert.deepEqual(model.hits.filter(h => h.row === 3).map(h => h.action), ['model:0', 'model:1'])
+  assert.match(plain(model.lines[2]!), /model {2}opus 5\.5 sonnet 5\.5$/)
+  assert.deepEqual(model.hits.filter(h => h.row === 2).map(h => h.action), ['model:0', 'model:1'])
   const effort = drawFooter(view({ open: 'effort' }), 160)
-  assert.match(plain(effort.lines[3]!), /thinking {2}off minimal low medium high xhigh$/)
+  assert.match(plain(effort.lines[2]!), /thinking {2}off minimal low medium high xhigh$/)
   const xhigh = effort.hits.find(h => h.action === 'effort:xhigh')!
-  assert.equal([...plain(effort.lines[3]!)].slice(xhigh.from, xhigh.to).join(''), 'xhigh')
+  assert.equal([...plain(effort.lines[2]!)].slice(xhigh.from, xhigh.to).join(''), 'xhigh')
 })
 
 test('the panel lists cost, tokens, turns and limits, and other extensions keep their status', () => {
   const lines = drawFooter(view({ open: 'ledger', statuses: ['lsp: ready'] }), 160).lines.map(plain)
-  assert.equal(lines.length, 8)
-  assert.match(lines[3]!, /^ {2}cost {4}\$4\.82 · \$2\.00 per active hour/)
-  assert.match(lines[4]!, /^ {2}tokens {2}80 in · 2M cache write · 8\.3M cache read · 400k out · 81% cache hit/)
-  assert.match(lines[5]!, /^ {2}turns {3}40 turns · 2h active/)
-  assert.match(lines[6]!, /^ {2}limits {2}5h 38% measuring · 7d 91% measuring/)
-  assert.equal(lines[7], 'lsp: ready')
+  assert.equal(lines.length, 7)
+  assert.match(lines[2]!, /^ {2}cost {4}\$4\.82 · \$2\.00 per active hour/)
+  assert.match(lines[3]!, /^ {2}tokens {2}80 in · 2M cache write · 8\.3M cache read · 400k out · 81% cache hit/)
+  assert.match(lines[4]!, /^ {2}turns {3}40 turns · 2h active/)
+  assert.match(lines[5]!, /^ {2}limits {2}5h 38% measuring · 7d 91% measuring/)
+  assert.equal(lines[6], 'lsp: ready')
 })
 
-test('the activity keeps one width in every phase', () => {
+test('the readout keeps its width in every phase', () => {
   const widths = (['idle', 'sending', 'receiving'] as const).map(phase => readoutTarget(phase, 1234, []).text.length)
   assert.deepEqual(widths, [READOUT_WIDTH, READOUT_WIDTH + SECONDS_WIDTH, READOUT_WIDTH])
   const tool = toolReadout([{ name: 'bash', arg: 'npm test' }], TOOL_WIDTH)
   assert.equal(tool.text.length, TOOL_WIDTH)
   assert.equal(tool.bright, 4)
-  const toolLines = drawFooter(view({ phase: 'tool', tools: [{ name: 'bash', arg: 'npm test' }], readout: tool.text }), 160).lines.map(plain)
-  const idleLines = drawFooter(view(), 160).lines.map(plain)
-  assert.equal(toolLines[1]!.indexOf('80 in'), idleLines[1]!.indexOf('80 in'))
-  assert.equal(toolLines[0]!.indexOf('5h'), idleLines[0]!.indexOf('5h'))
 })
 
 test('tool arguments name the file, the command or the pattern', () => {
@@ -200,20 +197,19 @@ test('the graph rises with the stream and settles flat after it', () => {
   assert.equal(graphText(s, false, false), '⣀⣀⣀⣀⣀⣀')
 })
 
-test('at the widest figures every row keeps its columns and the token split stays whole', () => {
+test('at the widest figures and the longest names every row fits the footer', () => {
   const name = '1245_the-tills-fiscal-module-runs-as-a-separate-process'
-  // 999.99M, 112.46M, 112.46B and 999.99B: every count at 7 cells, the most human() prints.
   const v = view({
     folder: 'market-it', worktree: name, branch: `accodev/${name}`, hasNerdFont: true,
-    stats: { input: 999_990_000, output: 112_460_000, read: 112_460_000_000, write: 999_990_000_000, costUsd: 1 },
     context: { tokens: 999_000, contextWindow: 1_000_000, percent: 99.9 },
+    limits: [{ kind: 'five_hour', percentUsed: 100 }, { kind: 'seven_day', percentUsed: 100 }],
   })
-  for (const width of [160, 200]) {
-    const lines = drawFooter(v, width).lines.map(plain)
-    for (const line of lines) assert.equal(visibleWidth(line), width)
-    assert.match(lines[1]!, / 999\.99M in \/ 112\.46M out \/ 112\.46B read \/ 999\.99B write /)
-    // The token split starts where the activity starts, whatever the names before them.
-    assert.equal(lines[1]!.indexOf('999.99M in'), 55)
+  for (const layout of ['scan', 'middle'] as const) {
+    for (const width of [100, 160, 200]) {
+      const lines = drawFooter({ ...v, layout, phase: 'tool', tools: [{ name: 'bash', arg: 'npm test -- --watch=false' }] }, width).lines.map(plain)
+      for (const line of lines) assert.equal(visibleWidth(line), width)
+      assert.match(lines[1]!, /5h 100% · 7d 100% {3}opus 5\.5 high · 02c6e8dd$/)
+    }
   }
 })
 
@@ -226,9 +222,6 @@ test('sending waits with a scan; a stream fills the graph from the bottom', () =
   assert.deepEqual(scanCells(0, 34), [0, 0, 34])
   assert.deepEqual(scanCells(750, 34), [14, 6, 14])
   assert.deepEqual(scanCells(1_499, 34), [33, 1, 0])
-  // The sending row keeps the activity's width: the glyph, 18 cells of readout, a space, 34 of scan.
-  const lines = drawFooter(view({ phase: 'sending', readout: waitingText(4_160, 18), sweepMs: 750, hasNerdFont: true }), 200).lines.map(plain)
-  assert.match(lines[0]!, /↑ waiting\.\.     4\.1s ─{14}━{6}─{14}/)
   const g = newGraph(4)
   assert.equal(graphText(g, false, true), '────')
   for (let i = 0; i < 40; i++) tickGraph(g, 33, 100, false)
@@ -262,9 +255,12 @@ test('middle: the activity sits in the middle of the row, in words', () => {
   assert.match(row({ phase: 'sending', waitedMs: 4_160 }), /^market-it \(main\) +✻ thinking 4\.1s +5h 34%/)
   assert.match(row({ phase: 'receiving', readout: '      82 t/s', line: '⣠⣴⣶' }), /^market-it \(main\) +↓ 82 t\/s ⣠⣴⣶ +5h 34%/)
   assert.match(row({ phase: 'tool', tools: [{ name: 'Read', arg: 'register.tsx' }, { name: 'Grep', arg: 'TODO' }] }), /^market-it \(main\) +. 2 tools Read register\.tsx · Grep TODO +5h 34%/)
-  // The activity is centered in the row: it starts near the middle whatever its length.
-  const at = row({ phase: 'sending', waitedMs: 4_160 }).indexOf('✻')
-  assert.ok(Math.abs(at - (140 - '✻ thinking 4.1s'.length) / 2) <= 1, `at ${at}`)
+  // The activity is centered in the gap between the workspace and the limits.
+  const r = row({ phase: 'sending', waitedMs: 4_160 })
+  const gapStart = 'market-it (main)'.length
+  const gapEnd = r.indexOf('5h 34%')
+  const at = r.indexOf('✻')
+  assert.ok(Math.abs(at - (gapStart + gapEnd - '✻ thinking 4.1s'.length) / 2) <= 1, `at ${at}`)
   for (const line of drawFooter(view({ ...base, phase: 'receiving', readout: '      82 t/s', line: '⣠⣴⣶' }), 140).lines) assert.equal(visibleWidth(line), 140)
 })
 
@@ -282,7 +278,7 @@ test('the extension draws the footer from Pi events', async () => {
   const pi = {
     on: (name: string, fn: (e: unknown, c: unknown) => Promise<unknown>) => handlers.set(name, fn),
     registerCommand: (name: string, options: { handler: (args: string, c: unknown) => Promise<void> }) => commands.set(name, options),
-    getSettings: () => ({ hairline: { currency: 'USD', layout: 'columns' }, compaction: { reserveTokens: 40_000 } }),
+    getSettings: () => ({ hairline: { currency: 'USD', layout: 'middle' }, compaction: { reserveTokens: 40_000 } }),
     getThinkingLevel: () => thinking,
     setThinkingLevel: (level: string) => { thinking = level },
     setModel: async (m: { id: string }) => { picked.push(m.id); return true },
@@ -312,11 +308,11 @@ test('the extension draws the footer from Pi events', async () => {
   const emit = (name: string, e: unknown = {}) => handlers.get(name)!(e, ctx)
   const line = () => footer!.render(160).slice(0, 2).map(plain).join('\n')
   await emit('session_start', { reason: 'startup' })
-  assert.match(line(), /^market-it \((?:\S )?feat\/pi\) .*opus 5\.5 high\n25% 50k\/200k .*--- tok .*02c6e8dd$/)
+  assert.match(line(), /^━+ 25% [─┃]+\nmarket-it \((?:\S )?feat\/pi\) +--- tok {3}opus 5\.5 high · 02c6e8dd$/)
 
   await emit('agent_start')
   await emit('turn_start')
-  assert.match(line(), / ↑ /)
+  assert.match(line(), /✻ thinking \d+\.\ds/)
   await emit('after_provider_response', { status: 200, headers: { 'anthropic-ratelimit-unified-5h-utilization': '0.38', 'anthropic-ratelimit-unified-5h-reset': '9999999999' } })
   await emit('message_update', { assistantMessageEvent: { type: 'text_delta', delta: 'hello' } })
   assert.match(line(), / ↓ /)
@@ -326,7 +322,7 @@ test('the extension draws the footer from Pi events', async () => {
   await new Promise(done => setTimeout(done, 1_000)) // the readout scrambles, then settles
   assert.match(line(), /bash npm test/)
   await emit('agent_settled', { aborted: false })
-  assert.match(line(), /5h 38%[\s\S]*1k in \/ +500 out \/ +9k read \/ +2k write/)
+  assert.match(line(), /5h 38% {3}opus/)
 
   const click = async (text: string, row = 0) => {
     const x = [...plain(footer!.render(160)[row]!)].join('').indexOf(text)
@@ -334,17 +330,17 @@ test('the extension draws the footer from Pi events', async () => {
     for (const type of ['press', 'click']) footer!.handleMouse({ type, button: 'left', x, y: row })
     await new Promise(done => setTimeout(done, 10))
   }
-  await click('1k in', 1)
+  await click('5h 38%', 1)
   const panel = footer!.render(160).map(plain)
-  assert.match(panel[3]!, /cost {4}\$0\.25/)
-  assert.match(panel[5]!, /1 turns/)
-  await click('1k in', 1)
-  assert.equal(footer!.render(160).length, 3)
-  await click('opus 5.5')
-  await click('sonnet 5.5', 3)
+  assert.match(panel[2]!, /cost {4}\$0\.25/)
+  assert.match(panel[4]!, /1 turns/)
+  await click('5h 38%', 1)
+  assert.equal(footer!.render(160).length, 2)
+  await click('opus 5.5', 1)
+  await click('sonnet 5.5', 2)
   assert.deepEqual(picked, ['claude-sonnet-5-5'])
-  await click('high')
-  await click('low', 3)
+  await click('high', 1)
+  await click('low', 2)
   assert.equal(thinking, 'low')
   footer!.dispose()
   await emit('session_shutdown', { reason: 'quit' })
