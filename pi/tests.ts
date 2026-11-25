@@ -316,6 +316,13 @@ test('the extension draws the footer from Pi events', async () => {
   const line = () => footer!.render(160).slice(0, 2).map(plain).join('\n')
   await emit('session_start', { reason: 'startup' })
   assert.match(line(), /^━+ 25% [─┃]+\nmarket-it \((?:\S )?feat\/pi\) +--- tok {3}opus 5\.5 high · 02c6e8dd$/)
+  // A move of the session's folder shows the new repository on the next draw.
+  const moved = join(process.env.PI_CODING_AGENT_DIR, 'moved')
+  mkdirSync(join(moved, '.git'), { recursive: true })
+  ctx.cwd = moved
+  assert.match(line(), /\nmoved \(/)
+  ctx.cwd = join(repo, 'src')
+  assert.match(line(), /\nmarket-it \(/)
 
   await emit('agent_start')
   await emit('turn_start')
