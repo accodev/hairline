@@ -10,7 +10,7 @@ const HINT = {
 
 const SESSION_ID = '02c6e8dd-64d4-4f01-8f7f-3a43b20104a2'
 
-test('draws workspace, context, limits, model and a copyable session id', { options: { layout: 'columns', currency: 'USD' } }, async ($, on) => {
+test('draws workspace, context, limits, model and a copyable session id', { options: { currency: 'USD' } }, async ($, on) => {
   const clock = mock.clock(on)
   // Saved by an earlier load of the module in this session: it wins over the config row.
   const stats = { input: 80, write: 2_000_000, read: 8_300_000, output: 400_000, main: 1_600_000, sub: 800_080, turns: 40, activeMs: 2 * 3_600_000, costStart: 0.82 }
@@ -59,17 +59,12 @@ test('draws workspace, context, limits, model and a copyable session id', { opti
     expect(await ui.find({ type: 'Text', text: '? for shortcuts' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'market-it' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined() // the second row leaves the branch room
-    expect(await ui.find({ type: 'Text', text: '52%' })).toBeDefined()
-    if (surface === 'terminal') {
-      // The rule spans the 160 columns: the marker sits at 80%, column 128, past the 83 filled ones.
-      const marker = await ui.find({ type: 'Text', text: '┃' })
-      expect(marker?.props.color).toBe('ansi256(15)')
-    }
-    expect(await ui.find({ type: 'Text', text: ' 104k/200k' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '38%' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: / (\uf017 )?3d$/ })).toBeDefined()
-    // in, out, read and write: 80, 400k, 8.3M, 2M, in one muted Text.
-    expect((await ui.find({ type: 'Text', text: /80 in \/ +400k out \/ +8\.3M read \/ +2M write$/ }))?.props.dimColor).toBe(true)
+    // The percent rides the bar where the fill ends; the terminal draws the bar in its Client.
+    const bar = surface === 'terminal' ? JSON.stringify(await ui.drawn({ in: 'hairline-bar' })) : JSON.stringify(await ui.drawn())
+    expect(bar).toContain(' 52% ')
+    expect(bar).toContain('┃') // the auto-compact mark at 80%
+    expect(await ui.find({ type: 'Text', text: '5h 38%' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '7d 91%' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'opus 5.5' })).toBeDefined()
     const effort = await ui.find({ type: 'Text', text: surface === 'terminal' ? 'xhigh' : 'high' })
     expect(effort?.props.color).toBe(surface === 'terminal' ? 'ansi256(1)' : 'warning')
@@ -83,8 +78,8 @@ test('draws workspace, context, limits, model and a copyable session id', { opti
     expect(await ui.find({ type: 'Text', text: surface === 'terminal' ? 'high' : 'xhigh' })).toBeDefined()
 
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
-    await ui.press({ key: 'hairline-token-split' })
-    expect((await ui.find({ type: 'Text', text: /400k out/ }))?.props.inverse).toBe(true)
+    await ui.press({ key: 'hairline-ledger-5h' })
+    expect((await ui.find({ type: 'Text', text: '5h 38%' }))?.props.inverse).toBe(true)
     expect(await ui.find({ type: 'Text', text: /4[.,]82/ })).toBeDefined() // cost, in USD
     expect(await ui.find({ type: 'Text', text: /2[.,]00/ })).toBeDefined() // $4.00 since Hairline's first reading, over 2 active hours
     expect(await ui.find({ type: 'Text', text: '2h' })).toBeDefined() // 2 active hours, no zero unit
@@ -97,7 +92,7 @@ test('draws workspace, context, limits, model and a copyable session id', { opti
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined() // one panel at a time
     await ui.press({ key: 'hairline-model-sonnet' })
     expect(await ui.find({ key: 'hairline-model-haiku' })).toBeUndefined()
-    await ui.press({ key: 'hairline-token-split' })
+    await ui.press({ key: 'hairline-ledger-5h' })
 
     await ui.press({ key: 'hairline-effort' })
     expect(await ui.find({ type: 'Text', text: /^cost/ })).toBeUndefined()
@@ -110,7 +105,7 @@ test('draws workspace, context, limits, model and a copyable session id', { opti
   expect(modelSets).toEqual(['sonnet', 'sonnet'])
 
   const narrow = await $.ui.mount({ ...HINT, surface: 'terminal', viewport: { columns: 90, rows: 40 } })
-  expect(await narrow.find({ type: 'Text', text: ' 104k/200k' })).toBeDefined()
+  expect(await narrow.find({ type: 'Text', text: '5h 38%' })).toBeDefined()
   await narrow.unmount()
 
   const working = await $.ui.mount({ ...HINT, surface: 'terminal', props: { ...HINT.props, isWorking: true, hint: 'esc to interrupt' } })
@@ -118,7 +113,7 @@ test('draws workspace, context, limits, model and a copyable session id', { opti
   expect(await working.find({ type: 'Text', text: 'market-it' })).toBeDefined()
 })
 
-test('a worktree shows the repository name, then the worktree and the branch', { options: { layout: 'columns' } }, async ($, on) => {
+test('a worktree shows the repository name, then the worktree and the branch', async ($, on) => {
   const clock = mock.clock(on)
   const top = 'C:/code/hairline/.claude/worktrees/extra-usage'
   const at = (path: string, end: string) => path.replace(/\\/g, '/').endsWith(end)
@@ -145,7 +140,7 @@ test('a worktree shows the repository name, then the worktree and the branch', {
   await ui.unmount()
 })
 
-test('long worktree and branch names are cut to fit the first column on one row', { options: { layout: 'columns' } }, async ($, on) => {
+test('long worktree and branch names are cut to fit the first column on one row', async ($, on) => {
   const clock = mock.clock(on)
   const name = '1245_the-tills-fiscal-module-runs-as'
   const top = `C:/code/market-it/.claude/worktrees/${name}`
@@ -175,7 +170,7 @@ test('long worktree and branch names are cut to fit the first column on one row'
   await ui.unmount()
 })
 
-test('shows cost in the chosen currency at the day\'s ECB rate', { options: { layout: 'columns', currency: 'rmb' } }, async ($, on) => {
+test('shows cost in the chosen currency at the day\'s ECB rate', { options: { currency: 'rmb' } }, async ($, on) => {
   mock.clock(on)
   // Another session saved last: its entry must not replace this one's.
   const other = { sessionId: 'another-session', effort: 'low', stats: { input: 1, write: 0, read: 0, output: 99_000, main: 99_001, sub: 0, turns: 9, activeMs: 1, costStart: 0 } }
@@ -196,15 +191,15 @@ test('shows cost in the chosen currency at the day\'s ECB rate', { options: { la
 
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:/code/hairline' })
   const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
-  await ui.press({ key: 'hairline-token-split' })
+  await ui.press({ key: 'hairline-ledger-tokens' })
   expect(fetched).toEqual(['https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY'])
   expect(await ui.find({ type: 'Text', text: /66[.,]62/ })).toBeDefined() // 10 USD at 6.6616
-  expect(await ui.find({ type: 'Text', text: / 500 out/ })).toBeDefined() // this session's 500 out, not the other's 99k
-  expect(await ui.find({ type: 'Text', text: /99k out/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '2k tok' })).toBeDefined() // this session's 1.5k tokens, not the other's 99k
+  expect(await ui.find({ type: 'Text', text: /99k tok/ })).toBeUndefined()
   await ui.unmount()
 })
 
-test('marks the cost with a tilde when the rate cannot be fetched', { options: { layout: 'columns', currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
+test('marks the cost with a tilde when the rate cannot be fetched', { options: { currency: 'EUR', usdRate: 0.9 } }, async ($, on) => {
   mock.clock(on)
   mock.store(on, { sessions: [{ sessionId: SESSION_ID, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })
   on('http.fetch', () => ({ value: { status: 503, ok: false, headers: {}, text: '' } }))
@@ -222,12 +217,12 @@ test('marks the cost with a tilde when the rate cannot be fetched', { options: {
 
   await $.session.start({ surface: 'terminal', isInteractive: true, cwd: 'C:/code/hairline' })
   const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
-  await ui.press({ key: 'hairline-token-split' })
+  await ui.press({ key: 'hairline-ledger-tokens' })
   expect(await ui.find({ type: 'Text', text: /^~.*9[.,]00/ })).toBeDefined() // 10 USD at the 0.9 setting
   await ui.unmount()
 })
 
-test('a save before the reload restored the counts keeps the token split', { options: { layout: 'columns' } }, async ($, on) => {
+test('a save before the reload restored the counts keeps the token split', async ($, on) => {
   mock.clock(on)
   const stats = { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 }
   const kept = new Map<string, unknown>([['sessions', [{ sessionId: SESSION_ID, stats }]]])
@@ -253,7 +248,7 @@ test('a save before the reload restored the counts keeps the token split', { opt
   release()
   const ui = await mounting
   await ui.advance(1_000)
-  expect(await ui.find({ type: 'Text', text: / 500 out/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '2k tok' })).toBeDefined()
   const saved = kept.get('sessions') as { sessionId: string; stats: { output: number } }[]
   expect(saved.find(s => s.sessionId === SESSION_ID)?.stats.output).toBe(500)
   await ui.unmount()
@@ -287,7 +282,7 @@ async function mountWithExtra($: Parameters<Parameters<typeof test>[1]>[0], on: 
   return { ui, clock, state, asked }
 }
 
-test('shows the month\'s extra usage spend from 95% of a limit, only while it is enabled', { options: { layout: 'columns' } }, async ($, on) => {
+test('shows the month\'s extra usage spend from 95% of a limit, only while it is enabled', async ($, on) => {
   const { ui, clock, state, asked } = await mountWithExtra($, on, 95)
   expect(asked.find(a => a.url.includes('/api/oauth/usage'))).toEqual({ url: 'https://api.anthropic.com/api/oauth/usage', auth: 'h1', beta: 'oauth-2025-04-20' })
   expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeDefined()
@@ -302,14 +297,14 @@ test('shows the month\'s extra usage spend from 95% of a limit, only while it is
   await ui.unmount()
 })
 
-test('hides the extra usage spend while both limits are under 95%', { options: { layout: 'columns' } }, async ($, on) => {
+test('hides the extra usage spend while both limits are under 95%', async ($, on) => {
   const { ui } = await mountWithExtra($, on, 94)
   expect(await ui.find({ type: 'Text', text: '94%' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'extra ' })).toBeUndefined()
   await ui.unmount()
 })
 
-test('after a reload with no session.start, the line still reads the limits other sessions move, every minute', { options: { layout: 'columns' } }, async ($, on) => {
+test('after a reload with no session.start, the line still reads the limits other sessions move, every minute', async ($, on) => {
   const clock = mock.clock(on)
   let fiveHour = 25
   on('session.authorize', () => ({ value: { handle: 'h1', kind: 'bearer' } }))
@@ -338,7 +333,7 @@ test('after a reload with no session.start, the line still reads the limits othe
   await ui.unmount()
 })
 
-test('draws the line in the desktop band above the prompt, under other mods and never over a survey', { options: { layout: 'columns' } }, async ($, on) => {
+test('draws the line in the desktop band above the prompt, under other mods and never over a survey', async ($, on) => {
   mock.clock(on)
   mock.store(on, { sessions: [{ sessionId: SESSION_ID, effort: null, stats: { input: 10, write: 1_000, read: 0, output: 500, main: 1_510, sub: 0, turns: 1, activeMs: 60_000, costStart: 0 } }] })
   on('session.start', () => ({ cwd: 'C:/code/hairline' }))

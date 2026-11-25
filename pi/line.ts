@@ -1,5 +1,5 @@
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui'
-import { scanCells, SCAN_BODY_CELLS, SCAN_HEAD_CELLS, SCAN_TAIL, SECONDS_WIDTH, sendingText } from './anim.ts'
+import { SCAN_BODY_CELLS, SCAN_HEAD_CELLS, SCAN_TAIL, SECONDS_WIDTH, sendingText } from './anim.ts'
 
 // The footer as text. Pi hands every line to the terminal as is, so the colors are SGR codes for
 // the 16 palette slots: each person's terminal scheme picks the shades, as in Claude Code.
@@ -19,14 +19,12 @@ export const GRAPH_CELLS = TOKEN_SPLIT_WIDTH - 2 - READOUT_WIDTH - 1
 // The first column: the repository over the context, cut with an ellipsis past this width.
 export const WORKSPACE_WIDTH = 52
 // scan: the context bar, scanned while a turn runs, over one row. middle: the bar over one row with
-// the activity centered. columns: two rows of four columns over the bar.
-export const LAYOUTS = ['scan', 'middle', 'columns'] as const
+// the activity centered.
+export const LAYOUTS = ['scan', 'middle'] as const
 export type Layout = (typeof LAYOUTS)[number]
 // Middle: the tool call's text and the dot line's cells in the centered activity.
 const MIDDLE_TOOL_WIDTH = 48
 export const MIDDLE_GRAPH_CELLS = 12
-const COLUMN_GAP = 3
-const LIMITS_GAP = 6
 const WARN_FROM = 60
 const BAD_FROM = 85
 const BURN_MIN_HOURS = 0.1
@@ -282,12 +280,6 @@ export function worktreeOf(gitDir: string, top: string): { name: string; worktre
   return main ? { name: base(main), worktree: base(top) } : { name: base(top), worktree: null }
 }
 
-// Exactly `width` cells: cut with an ellipsis, or padded.
-function fit(text: string, width: number): string {
-  const cut = truncateToWidth(text, width, '…')
-  return cut + ' '.repeat(Math.max(0, width - visibleWidth(cut)))
-}
-
 // The worktree and the branch cut to fit the column with the repository, the parentheses, the
 // separator and the glyphs. The longer name loses a cell first, so both stay readable.
 export function cutWorkspace(folder: string, worktree: string | null, branch: string | null, hasGlyphs: boolean, width: number): { worktree: string; branch: string } {
@@ -317,50 +309,6 @@ function workspace(v: View, width: number): string {
   return paint(v.folder, { color: C.folder }) + (parts.length ? `${dim(' (')}${parts.join(dim(' · '))}${dim(')')}` : '')
 }
 
-function contextCell(v: View): string {
-  const pct = v.context?.percent ?? null
-  const size = v.context?.tokens == null ? '---/---' : `${human(v.context.tokens)}/${human(v.context.contextWindow)}`
-  return [
-    pct === null ? dim('--%') : paint(`${Math.round(pct)}%`, { color: rampColor(pct, v.compactAt) }),
-    dim(` ${size}`),
-    v.compactAt === null ? '' : dim(` · compacts at ${Math.round(v.compactAt)}%`),
-  ].join('')
-}
-
-// Idle, the readout stays empty: a dim glyph, a word and a flat graph only said so.
-function activityRow(v: View): string {
-  if (v.phase === 'idle') return ''
-  if (v.phase === 'sending') {
-    // The word is dim and the time is at full strength: the time is what changes.
-    const [before, head, after] = scanCells(v.sweepMs, GRAPH_CELLS - SECONDS_WIDTH)
-    const scan = `${dim('─'.repeat(before))}${paint('━'.repeat(head), { color: C.folder })}${dim('─'.repeat(after))}`
-    return `${phaseGlyph(v)}${dim(v.readout.slice(0, -SECONDS_WIDTH))}${v.readout.slice(-SECONDS_WIDTH)} ${scan}`
-  }
-  const bright = v.phase === 'receiving' ? TPS_WIDTH : v.phase === 'tool' ? toolReadout(v.tools, TOOL_WIDTH).bright : 0
-  const readout = `${v.readout.slice(0, bright)}${dim(v.readout.slice(bright))}`
-  // A running tool's name fills the graph's cells too.
-  const dots = v.phase === 'tool' ? '' : ` ${paint(v.graph, { color: C.folder, dim: !v.isLit })}`
-  return `${phaseGlyph(v)}${readout}${dots}`
-}
-
-// Each kind costs a different price, so the line splits them as Pi's own footer does. Each count
-// is padded to the widest human() gives, so a count that grows a digit moves none after it.
-function tokenSplitRow(v: View): string {
-  if (counted(v.stats) === 0) return dim('--- tok')
-  const inverse = v.open === 'ledger'
-  return hoverable(paint([
-    [v.stats.input, 'in'], [v.stats.output, 'out'], [v.stats.read, 'read'], [v.stats.write, 'write'],
-  // One muted gray: the token split is a tally to glance at, the activity above it is live.
-  ].map(([n, unit]) => `${human(n as number).padStart(COUNT_WIDTH)} ${unit}`).join(' / '), { inverse, dim: true }), 'ledger', v)
-}
-
-function limitCell(v: View, kind: string, label: string): string {
-  const w = v.limits.find(l => l.kind === kind)
-  if (!w) return ''
-  const reset = w.resetsAt ? dim(` ${v.hasNerdFont ? `${NERD_GLYPHS.reset} ` : ''}${duration(Date.parse(w.resetsAt) - v.now)}`) : ''
-  return `${dim(`${label} `)}${percent(w.percentUsed)}${reset}`
-}
-
 // The model and the thinking level on the first row, the session ID on the second, each part with
 // the action a click on it runs.
 function modelParts(v: View): { text: string; action?: string }[][] {
@@ -377,54 +325,9 @@ function modelParts(v: View): { text: string; action?: string }[][] {
   return [top, bottom].map(parts => parts.map(p => ({ ...p, text: hoverable(p.text, p.action, v) })))
 }
 
-// The context bar across the whole footer: one cell per column is the finest step it can take.
-function contextBar(pct: number | null, compactAt: number | null, cells: number): string {
-  const filled = pct === null ? 0 : Math.round((Math.min(pct, 100) / 100) * cells)
-  // In the last cell the marker would only repeat the rule's own end, so it hides there.
-  const marker = compactAt === null ? -1 : Math.floor((compactAt / 100) * cells)
-  let out = ''
-  for (let i = 0; i < cells; i++) {
-    const color = rampColor(((i + 0.5) / cells) * 100, compactAt)
-    // The track is dim text: slot 8 vanishes on translucent and dark backgrounds.
-    if (i === marker && i < cells - 1) out += paint('┃', i < filled ? { color } : { color: C.marker })
-    else out += i < filled ? paint('━', { color }) : dim('─')
-  }
-  return out
-}
-
-// Two rows of four columns, as in Claude Code: the workspace over the context, the activity over the
-// tokens, 5h over 7d, the model over the session ID. The first two columns have fixed widths, so
-// nothing moves as figures change; the limits and the model sit right. Then the rule.
+// The bar, then one row. scan and middle differ only in the row's middle.
 function mainRows(v: View, width: number, hits: Hit[]): string[] {
-  if (v.layout !== 'columns') return oneLineRows(v, width, hits)
-  const limits = [limitCell(v, 'five_hour', '5h'), limitCell(v, 'seven_day', '7d') + extraSpend(v)]
-  const limitsWidth = Math.max(...limits.map(visibleWidth))
-  const right = modelParts(v)
-  const rightTexts = right.map(parts => parts.map(p => p.text).join(''))
-  const rightWidth = Math.max(...rightTexts.map(visibleWidth))
-  const rest = COLUMN_GAP + TOKEN_SPLIT_WIDTH + 2 + limitsWidth + (limitsWidth ? LIMITS_GAP : 0) + rightWidth
-  // A narrow footer cuts the place first, as Claude Code's first column shrinks first.
-  const workspaceWidth = Math.max(12, Math.min(WORKSPACE_WIDTH, width - rest))
-  const left = [workspace(v, workspaceWidth), contextCell(v)].map(t => fit(t, workspaceWidth))
-  const middle = [activityRow(v), tokenSplitRow(v)].map(t => fit(t, TOKEN_SPLIT_WIDTH))
-  const leftWidth = workspaceWidth + COLUMN_GAP + TOKEN_SPLIT_WIDTH
-  const free = Math.max(2, width - leftWidth - limitsWidth - (limitsWidth ? LIMITS_GAP : 0) - rightWidth)
-  if (counted(v.stats) > 0) hits.push({ row: 1, from: workspaceWidth + COLUMN_GAP, to: workspaceWidth + COLUMN_GAP + visibleWidth(tokenSplitRow(v)), action: 'ledger' })
-  const rows = [0, 1].map(r => {
-    const rightPad = rightWidth - visibleWidth(rightTexts[r]!)
-    let at = leftWidth + free + limitsWidth + (limitsWidth ? LIMITS_GAP : 0) + rightPad
-    for (const p of right[r]!) {
-      const w = visibleWidth(p.text)
-      if (p.action && at + w <= width) hits.push({ row: r, from: at, to: at + w, action: p.action })
-      at += w
-    }
-    return truncateToWidth([
-      left[r], ' '.repeat(COLUMN_GAP), middle[r], ' '.repeat(free),
-      limitsWidth ? fit(limits[r]!, limitsWidth) + ' '.repeat(LIMITS_GAP) : '',
-      ' '.repeat(rightPad), rightTexts[r],
-    ].join(''), width, '')
-  })
-  return [...rows, contextBar(v.context?.percent ?? null, v.compactAt, width)]
+  return oneLineRows(v, width, hits)
 }
 
 // Thinking in Pi's own thinking color, as Claude Code thinks in its spinner's; slot 5 without a theme.
@@ -502,6 +405,7 @@ function oneLineRows(v: View, width: number, hits: Hit[]): string[] {
     { text: fiveHour, action: fiveHour ? 'ledger' : undefined },
     { text: fiveHour && sevenDay ? SEP : '' },
     { text: sevenDay, action: sevenDay ? 'ledger' : undefined },
+    ...(v.limits.length ? [] : [{ text: hoverable(paint(counted(v.stats) ? `${human(counted(v.stats))} tok` : '--- tok', { dim: true, inverse: v.open === 'ledger' }), 'ledger', v), action: 'ledger' }]),
     { text: extraSpend(v) },
     { text: top!.length ? '   ' : '' },
     ...top!,
@@ -510,13 +414,15 @@ function oneLineRows(v: View, width: number, hits: Hit[]): string[] {
   ].filter(p => p.text)
   const rightText = right.map(p => p.text).join('')
   const rightWidth = visibleWidth(rightText)
-  const center = v.layout === 'middle' ? centerActivity(v) : ''
-  const centerWidth = visibleWidth(center)
-  const leftWidth = Math.max(12, Math.min(WORKSPACE_WIDTH, width - rightWidth - (centerWidth ? centerWidth + 4 : 2)))
+  const full = v.layout === 'middle' ? centerActivity(v) : ''
+  const leftWidth = Math.max(12, Math.min(WORKSPACE_WIDTH, width - rightWidth - (full ? visibleWidth(full) + 4 : 2)))
   const left = workspace(v, leftWidth)
   const leftUsed = visibleWidth(left)
-  // The activity sits in the middle of the row, pushed aside only when a side reaches it.
-  const centerAt = Math.min(width - rightWidth - 2 - centerWidth, Math.max(leftUsed + 2, Math.floor((width - centerWidth) / 2)))
+  // The activity sits in the middle of the gap between the sides; a short gap cuts it, never them.
+  const gap = width - rightWidth - leftUsed
+  const center = full && gap >= 12 ? truncateToWidth(full, gap - 4, '…') : ''
+  const centerWidth = visibleWidth(center)
+  const centerAt = leftUsed + Math.floor((gap - centerWidth) / 2)
   const rightAt = Math.max(leftUsed + (centerWidth ? 2 + centerWidth + 2 : 2), width - rightWidth)
   let at = rightAt
   for (const p of right) {
