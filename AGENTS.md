@@ -70,7 +70,7 @@ Screens land in `scripts/e2e-out/`. The `e2e` workflow runs both on Linux for ch
 ## Ship
 
 - Conventional Commits. One PR per change, CI green, rebase merge.
-- Bump `version` in `.claude-plugin/plugin.json` on a behavior change.
+- Bump `version` in `.claude-plugin/plugin.json` on a behavior change. The `publish` workflow tags a new version on its merge to `main`, releases it with notes from the PR titles, and stages it on npm. The npm approval stays manual.
 - Comments say why, never what.
 - README images come from `tests/screenshots.test.ts`. The `screenshots` workflow renders them on `main` and pushes them to the `screenshots` branch.
 - Keep each file's line endings. Source files and `plugin.json` are CRLF. Other JSON and YAML files are LF.

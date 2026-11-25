@@ -1,6 +1,9 @@
 name: publish
 
 on:
+  # A merge that raises the plugin's version tags it, releases it and stages it on npm.
+  push:
+    branches: [main]
   release:
     types: [published]
   # Retries a release whose run failed: a rerun would replay the workflow as it was at the release's tag.
@@ -8,13 +11,46 @@ on:
 
 permissions:
   contents: read
-  # npm trusted publishing trades the workflow's OIDC token for a publish token: no NPM_TOKEN secret to leak.
-  id-token: write
 
 jobs:
+  # One file for the release and the stage: npm's trusted publisher names this workflow file, and a
+  # release made with GITHUB_TOKEN starts no other workflow.
+  release:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      created: ${{ steps.release.outputs.created }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tag and release a new version
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./.claude-plugin/plugin.json').version")
+          tag="v$version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "$tag exists"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
   npm:
+    needs: release
+    # A skipped release job skips this one too, unless always() lets the release and manual runs through.
+    if: always() && (github.event_name != 'push' || needs.release.outputs.created == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      # npm trusted publishing trades the workflow's OIDC token for a publish token: no NPM_TOKEN secret to leak.
+      id-token: write
     steps:
       - uses: actions/checkout@v5
 
