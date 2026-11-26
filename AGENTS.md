@@ -78,5 +78,5 @@ Screens land in `scripts/e2e-out/`. The `e2e` workflow runs both on Linux for ch
 - Bump `package.json` with sed, plus the two `version` lines of `package-lock.json`: `npm version` reformats inline arrays.
 - The merge of a PR that raises the version runs `publish.yml`: it tags `hairline--v<version>` with `claude plugin tag --push`, creates the GitHub release and stages the version on npm. A maintainer approves the stage with 2FA on npmjs.com. Do not tag or release by hand.
 - Comments say why, never what.
-- README images come from `tests/screenshots.test.ts`. The `screenshots` workflow renders them on `main` and pushes them to the `screenshots` branch.
+- README images come from `tests/screenshots.test.ts`, drawn by `scripts/screenshots.ts` with `node --experimental-strip-types`. The `screenshots` workflow renders them on `main` and pushes them to the `screenshots` branch.
 - Keep each file's line endings. Source files and `plugin.json` are CRLF. Other JSON and YAML files are LF.

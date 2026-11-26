@@ -116,7 +116,7 @@ npm run test:pi
 Those check the Pi extension in `pi/`. CI runs all five commands on every push to `main` and on pull requests.
 
 ```sh
-node scripts/screenshots.mjs out
+node --experimental-strip-types scripts/screenshots.ts out
 ```
 
 That renders the README images locally, with Chrome or Edge. On `main`, CI renders them from `tests/screenshots.test.ts` and pushes them to the `screenshots` branch.

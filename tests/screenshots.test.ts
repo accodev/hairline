@@ -1,6 +1,6 @@
 import { mock, test } from 'claude-code/testing'
 
-// Prints each scene's drawn tree for scripts/screenshots.mjs, which lays it out and saves a PNG.
+// Prints each scene's drawn tree for scripts/screenshots.ts, which lays it out and saves a PNG.
 // The data is fixed, so the README images change only when the line's code does.
 
 const SESSION_ID = '8f3a2c1d-5b7e-4a90-9c61-2d4e8b0f7a13'
