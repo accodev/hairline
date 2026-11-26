@@ -54,14 +54,14 @@ CI runs both on Claude Code 2.1.312 (Node 22). `main` requires the `check` statu
 
 ## E2E
 
-`scripts/e2e.py` (Claude Code) and `scripts/pi-e2e.py` (Pi) drive real sessions in a pseudo-terminal and check the context bar, the workspace, the token total and the model, before and after one turn. `scripts/e2e_kit.py` serves a fake Anthropic Messages API, so no API key is needed. `scripts/e2e_line.py` holds the checks both share. Run from the repo root, after `npm ci` for Pi:
+`tests/e2e/claude.spec.ts` (Claude Code) and `tests/e2e/pi.spec.ts` (Pi) drive real sessions in a pseudo-terminal (`@lydell/node-pty`, read into `@xterm/headless`) and check the context bar, the workspace, the token total and the model, before and after one turn. `tests/e2e/kit.ts` serves a fake Anthropic Messages API, so no API key is needed. `tests/e2e/line.ts` holds the checks both share. The `.spec.ts` names keep `claude plugin test` off them. Run from the repo root, after `npm ci`:
 
 ```sh
-uv run --no-project --with pyte --with pywinpty python -I scripts/e2e.py      # Windows; ptyprocess on Linux
-uv run --no-project --with pyte --with pywinpty python -I scripts/pi-e2e.py
+npm run e2e:claude
+npm run e2e:pi
 ```
 
-Screens land in `scripts/e2e-out/`. The `e2e` workflow runs both on Linux for changes to `claude/`, `pi/` or `scripts/`, with the pins of `ci.yml` and `package.json`.
+Screens land in `tests/e2e/out/`. The `e2e` workflow runs both on Linux for changes to `claude/`, `pi/`, `tests/e2e/` or the npm packages, with the pins of `ci.yml` and `package.json`.
 
 ## Types
 
