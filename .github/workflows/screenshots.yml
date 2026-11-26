@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    paths: [hooks/**, tests/screenshots.test.ts, scripts/screenshots.mjs, .github/workflows/screenshots.yml]
+    paths: [claude/**, tests/screenshots.test.ts, scripts/screenshots.mjs, .github/workflows/screenshots.yml]
   workflow_dispatch:
 
 permissions:

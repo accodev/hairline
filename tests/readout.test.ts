@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { frameText } from '../hooks/readout.tsx'
+import { frameText } from '../claude/readout.tsx'
 
 test('the readout scrambles, then settles left to right', () => {
   const from = ' 224 t/s', to = '    idle'

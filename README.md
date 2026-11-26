@@ -105,7 +105,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-Those check the Claude Code mod in `hooks/`.
+Those check the Claude Code mod in `claude/`.
 
 ```sh
 npm ci

@@ -5,9 +5,9 @@ name: e2e
 on:
   push:
     branches: [main]
-    paths: [hooks/**, pi/**, scripts/**, .github/workflows/e2e.yml]
+    paths: [claude/**, pi/**, scripts/**, .github/workflows/e2e.yml]
   pull_request:
-    paths: [hooks/**, pi/**, scripts/**, .github/workflows/e2e.yml]
+    paths: [claude/**, pi/**, scripts/**, .github/workflows/e2e.yml]
   workflow_dispatch:
 
 permissions:
