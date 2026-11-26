@@ -12,7 +12,9 @@
   },
   "scripts": {
     "typecheck:pi": "tsc -p pi",
-    "test:pi": "node --experimental-strip-types --no-warnings --test pi/tests.ts"
+    "test:pi": "node --experimental-strip-types --no-warnings --test pi/tests.ts",
+    "e2e:claude": "node --experimental-strip-types --no-warnings tests/e2e/claude.spec.ts",
+    "e2e:pi": "node --experimental-strip-types --no-warnings tests/e2e/pi.spec.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -23,7 +25,9 @@
     "@earendil-works/pi-ai": "1.5.0",
     "@earendil-works/pi-coding-agent": "1.5.0",
     "@earendil-works/pi-tui": "1.5.0",
+    "@lydell/node-pty": "1.2.0-beta.18",
     "@types/node": "^22.10.2",
+    "@xterm/headless": "6.0.0",
     "typescript": "5.6.3"
   }
 }

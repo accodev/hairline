@@ -1,13 +1,13 @@
 name: e2e
 
 # Drives real Claude Code and Pi sessions in a pseudo-terminal and checks hairline's two rows before
-# and after one turn. A fake model in scripts/e2e_kit.py gives the reply, so no API key is needed.
+# and after one turn. A fake model in tests/e2e/kit.ts gives the reply, so no API key is needed.
 on:
   push:
     branches: [main]
-    paths: [claude/**, pi/**, scripts/**, .github/workflows/e2e.yml]
+    paths: [claude/**, pi/**, tests/e2e/**, package.json, package-lock.json, .github/workflows/e2e.yml]
   pull_request:
-    paths: [claude/**, pi/**, scripts/**, .github/workflows/e2e.yml]
+    paths: [claude/**, pi/**, tests/e2e/**, package.json, package-lock.json, .github/workflows/e2e.yml]
   workflow_dispatch:
 
 permissions:
@@ -36,19 +36,18 @@ jobs:
       - name: Install Claude Code
         run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
+      # node-pty and the headless xterm screen.
       - name: Install the terminal driver
-        run: |
-          python3 -m venv .e2e
-          .e2e/bin/pip install --quiet pyte ptyprocess
+        run: npm ci
 
       - name: Run
-        run: .e2e/bin/python -I scripts/e2e.py
+        run: npm run e2e:claude
 
       - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: e2e-claude-code
-          path: scripts/e2e-out
+          path: tests/e2e/out
 
   pi:
     runs-on: ubuntu-latest
@@ -63,20 +62,15 @@ jobs:
       - name: Install Pi
         run: npm install --global "@earendil-works/pi-coding-agent@${PI_VERSION}"
 
-      # The extension imports pi-tui from the repo's node_modules.
-      - name: Install the Pi extension's dev packages
+      # The extension imports pi-tui from the repo's node_modules, the run node-pty and xterm.
+      - name: Install the dev packages
         run: npm ci
 
-      - name: Install the terminal driver
-        run: |
-          python3 -m venv .e2e
-          .e2e/bin/pip install --quiet pyte ptyprocess
-
       - name: Run
-        run: .e2e/bin/python -I scripts/pi-e2e.py
+        run: npm run e2e:pi
 
       - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: e2e-pi
-          path: scripts/e2e-out
+          path: tests/e2e/out
