@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    paths: [claude/**, tests/screenshots.test.ts, scripts/screenshots.mjs, .github/workflows/screenshots.yml]
+    paths: [claude/**, tests/screenshots.test.ts, scripts/screenshots.ts, .github/workflows/screenshots.yml]
   workflow_dispatch:
 
 permissions:
@@ -47,7 +47,7 @@ jobs:
       - name: Render
         env:
           CHROME: google-chrome
-        run: node scripts/screenshots.mjs out
+        run: node --experimental-strip-types scripts/screenshots.ts out
 
       - uses: actions/upload-artifact@v5
         with:
