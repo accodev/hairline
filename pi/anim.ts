@@ -1,4 +1,4 @@
-// The readout's scramble and the graph, as in hooks/readout.tsx and hooks/graph.tsx. Pi has no
+// The readout's scramble and the graph, as in claude/readout.tsx and claude/graph.tsx. Pi has no
 // Client modules, so the footer's own timer calls tick() and redraws the line.
 
 // When the phase changes, every cell that held or will hold a character shows random ones, then
@@ -126,7 +126,7 @@ export function lineText(s: Graph, cells: number, isLive: boolean): string {
   return dotLine(samples, scale(samples, s.top, isLive))
 }
 
-// The scan layout's head, as in hooks/bar.tsx: 2 cells in the head color, 4 in the body color, 6
+// The scan layout's head, as in claude/bar.tsx: 2 cells in the head color, 4 in the body color, 6
 // dim. MAX_PASSES keeps a frame's step under 8 cells at 30 frames a second, so the head glides.
 export const SCAN_TAIL = 12
 export const SCAN_HEAD_CELLS = 2
@@ -149,7 +149,7 @@ export function graphText(s: Graph, isLive: boolean, isSweeping: boolean): strin
   return areaLine(s.bars, scale(s.bars, s.top, isLive))
 }
 
-// The scan while a request is out, as in hooks/graph.tsx: a SCAN_HEAD-cell ━ runs along a ─
+// The scan while a request is out, as in claude/graph.tsx: a SCAN_HEAD-cell ━ runs along a ─
 // track, one pass each SCAN_MS. No progress can be known, so the motion says only that the wait goes on.
 const SCAN_MS = 1500
 const SCAN_HEAD = 6

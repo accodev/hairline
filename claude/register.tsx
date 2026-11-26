@@ -1274,7 +1274,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // Clicks on the desktop app's chips (hooks/chip.tsx), which stand in for the terminal's Buttons.
+  // Clicks on the desktop app's chips (claude/chip.tsx), which stand in for the terminal's Buttons.
   on('ui.message', async ($, e, next) => {
     if (e.element === 'hairline-token-split') toggle($, 'ledger')
     else if (e.element === 'hairline-session-id') await copySessionId($, e.surface)

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
-import { toolReadout } from '../hooks/register.tsx'
-import { sendingText, waitingText } from '../hooks/readout.tsx'
-import { areaLine, scanCells, sweepBars } from '../hooks/graph.tsx'
+import { toolReadout } from '../claude/register.tsx'
+import { sendingText, waitingText } from '../claude/readout.tsx'
+import { areaLine, scanCells, sweepBars } from '../claude/graph.tsx'
 
 const WIDTH = 24
 

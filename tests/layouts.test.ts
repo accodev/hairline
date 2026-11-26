@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { scanCells, type BarRun } from '../hooks/bar.tsx'
-import { workspaceWidth, WORKSPACE_WIDTH } from '../hooks/register.tsx'
+import { scanCells, type BarRun } from '../claude/bar.tsx'
+import { workspaceWidth, WORKSPACE_WIDTH } from '../claude/register.tsx'
 
 // The one-row layouts: scan draws the activity as a light on the context bar, middle centers it
 // between the workspace and the limits. Both keep the percent on the bar, where the fill ends.

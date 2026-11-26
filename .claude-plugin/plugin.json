@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "description": "A status line mod for Claude Code.",
+  "hooks": "./claude/hooks.json",
   "userConfig": {
     "layout": {
       "type": "string",
