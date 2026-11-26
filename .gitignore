@@ -4,6 +4,4 @@ node_modules/
 *.bak*
 # Rendered by scripts/screenshots.mjs; CI pushes them to the screenshots branch.
 screenshots/
-scripts/e2e-out/
-.e2e/
-__pycache__/
+tests/e2e/out/
