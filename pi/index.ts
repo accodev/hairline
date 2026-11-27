@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { isScrambling, lineText, newReadout, newGraph, scanPasses, scanStep, waitingText, setReadoutKind, readoutFrame, graphText, tickReadout, tickGraph } from './anim.ts'
-import { basename, counted, drawFooter, LAYOUTS, type Layout, MIDDLE_GRAPH_CELLS, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, readoutTarget, GRAPH_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
+import { basename, counted, drawFooter, LAYOUTS, type Layout, MIDDLE_GRAPH_CELLS, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, readoutTarget, refreshRateOf, GRAPH_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
 const RATE_MIN_WINDOW_MS = 100 // the first chunks' rate, over at least this, so one chunk draws no spike
@@ -12,7 +12,8 @@ const RATIO_MIN_TOKENS = 20 // shorter responses give a noisy characters-per-tok
 const RATIO_MIN = 2
 const RATIO_MAX = 6
 const REDRAWS_MAX = 30
-const FRAMES_MAX = 60
+const FRAMES_MAX = 240 // the fastest common panel; animationFps 0 matches the display
+const FRAMES_FALLBACK = 60 // when no command reports the display's refresh rate
 const REFRESH_MS = 5_000
 const DEFAULT_RESERVE_TOKENS = 16_384 // Pi's compaction.reserveTokens default
 const CURRENCIES = ['USD', 'CAD', 'AUD', 'EUR', 'JPY', 'CNY'] as const
@@ -46,7 +47,7 @@ function readSettings(raw: unknown): Settings {
     usdRate: rate > 0 ? rate : 0.9,
     cacheTtlMinutes: ttl > 0 ? ttl : 60,
     refreshPerSecond: refresh > 0 ? Math.min(REDRAWS_MAX, Math.max(1, refresh)) : REDRAWS_MAX,
-    frameRate: frames > 0 ? Math.min(FRAMES_MAX, Math.max(1, frames)) : 30,
+    frameRate: frames > 0 ? Math.min(FRAMES_MAX, Math.max(1, frames)) : 0,
     layout: (LAYOUTS as readonly string[]).includes(String(o.layout)) ? (String(o.layout) as Layout) : 'scan',
   }
 }
@@ -72,6 +73,20 @@ function writeStore(change: (s: Store) => void): void {
     change(s)
     writeFileSync(storePath(), JSON.stringify(s))
   } catch {}
+}
+
+// One command per system; a failed or silent one falls through to the next, then to 60.
+async function readDisplayHz(): Promise<number> {
+  const commands: [string, string[]][] = process.platform === 'win32'
+    ? [['powershell', ['-NoProfile', '-Command', '(Get-CimInstance Win32_VideoController).CurrentRefreshRate']]]
+    : [['system_profiler', ['SPDisplaysDataType']], ['xrandr', ['--current']]]
+  for (const [file, args] of commands) {
+    const out = await new Promise<string | null>(resolve =>
+      execFile(file, args, { timeout: 5_000 }, (err, stdout) => resolve(err ? null : stdout)))
+    const hz = out === null ? null : refreshRateOf(out)
+    if (hz) return Math.min(FRAMES_MAX, hz)
+  }
+  return FRAMES_FALLBACK
 }
 
 // The terminal font is out of reach, so an installed Nerd Font stands in for one in use. fc-list
@@ -142,6 +157,8 @@ export default function hairline(pi: ExtensionAPI) {
 
   let repo: { name: string; worktree: string | null } = { name: '', worktree: null }
   let repoCwd = ''
+  // The display's refresh rate, read once per session: frameRate 0 animates at it.
+  let displayHz = FRAMES_FALLBACK
   let model = ''
   let sessionId = ''
   let stats: Stats = { input: 0, write: 0, read: 0, output: 0, costUsd: null }
@@ -299,7 +316,7 @@ export default function hairline(pi: ExtensionAPI) {
   // when all four are still.
   function startTimer(): void {
     if (timer || !requestRender) return
-    const frameMs = Math.round(1000 / settings.frameRate)
+    const frameMs = Math.round(1000 / (settings.frameRate || displayHz))
     timer = setInterval(() => {
       tickReadout(readout, readoutTarget(phase, readoutTps, tools).text.length)
       tickGraph(graph, frameMs, isStreaming ? tps : 0, phase === 'sending')
@@ -504,6 +521,7 @@ export default function hairline(pi: ExtensionAPI) {
     if (c.mode !== 'tui') return
     install(c)
     void readNerdFont()
+    void readDisplayHz().then(hz => { displayHz = hz })
     void readExchange()
     void readExtra()
     refresh = setInterval(() => {

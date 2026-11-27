@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { scanCells, type BarRun } from '../claude/bar.tsx'
-import { workspaceWidth, WORKSPACE_WIDTH } from '../claude/register.tsx'
+import { refreshRateOf, workspaceWidth, WORKSPACE_WIDTH } from '../claude/register.tsx'
 
 // The one-row layouts: scan draws the activity as a light on the context bar, middle centers it
 // between the workspace and the limits. Both keep the percent on the bar, where the fill ends.
@@ -138,4 +138,17 @@ test('middle: the activity sits between the workspace and the limits, in words',
   await ui.advance(500)
   expect(await row()).toMatch(/hairline.*3 tools Agent a.*5h 34%/)
   await ui.unmount()
+})
+
+test('the refresh rate reads from Windows, macOS and xrandr output, the highest display winning', () => {
+  const cases: [string, number | null][] = [
+    ['119\r\n\r\n', 119],
+    ['60\r\n144\r\n', 144],
+    ['UI Looks like: 1512 x 982 @ 120.00Hz', 120],
+    ['Display Type: Built-in Liquid Retina XDR Display\n  ProMotion', 120],
+    ['   2560x1440     59.95*+  143.97\n   1920x1080     60.00', 60],
+    ['', null],
+    ['Screen 0: minimum 320 x 200', null],
+  ]
+  for (const [output, hz] of cases) expect(refreshRateOf(output)).toBe(hz)
 })
