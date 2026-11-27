@@ -63,6 +63,13 @@ jobs:
           cp .github/tools/test/package.json .github/tools/test/package-lock.json "$RUNNER_TEMP"
           npm ci --prefix "$RUNNER_TEMP" --no-audit --no-fund
           echo "$RUNNER_TEMP/node_modules/.bin" >> "$GITHUB_PATH"
+      # Pi downloads rg and fd from GitHub releases at startup when they are missing. A GitHub outage then
+      # holds startup past the test's prompt, so they come from apt.
+      - name: Install rg and fd
+        run: |
+          sudo apt-get install -y --no-install-recommends ripgrep fd-find
+          sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+
       # The extension imports pi-tui from the repo's node_modules, the run node-pty and xterm.
       - name: Install the dev packages
         run: npm ci
