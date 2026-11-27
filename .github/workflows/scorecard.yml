@@ -1,0 +1,29 @@
+name: scorecard
+
+# Publishes an OpenSSF Scorecard run to api.scorecard.dev, which serves the README badge.
+# Scorecard accepts results only from push and schedule runs on the default branch.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The OIDC token proves to api.scorecard.dev that this repo's workflow sent the results.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@23f22cd43608bae7a1f1fa2603d7314dee9538a5 # v2.6.0
+        with:
+          results_file: results.json
+          results_format: json
+          publish_results: true

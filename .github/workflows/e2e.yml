@@ -17,25 +17,23 @@ concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
 
-# The same pins as ci.yml and the devDependency in package.json.
-env:
-  CLAUDE_CODE_VERSION: 2.1.312
-  PI_VERSION: 1.5.0
-
 jobs:
   claude-code:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
+      # From the lockfile in .github/tools/test, pinned by hash. Installed outside the checkout: claude plugin validate counts the plugin's files.
       - name: Install Claude Code
-        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-
+        run: |
+          cp .github/tools/test/package.json .github/tools/test/package-lock.json "$RUNNER_TEMP"
+          npm ci --prefix "$RUNNER_TEMP" --no-audit --no-fund
+          echo "$RUNNER_TEMP/node_modules/.bin" >> "$GITHUB_PATH"
       # node-pty and the headless xterm screen.
       - name: Install the terminal driver
         run: npm ci
@@ -43,7 +41,7 @@ jobs:
       - name: Run
         run: npm run e2e:claude
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: e2e-claude-code
@@ -53,15 +51,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
+      # From the lockfile in .github/tools/test, pinned by hash. Installed outside the checkout: claude plugin validate counts the plugin's files.
       - name: Install Pi
-        run: npm install --global "@earendil-works/pi-coding-agent@${PI_VERSION}"
-
+        run: |
+          cp .github/tools/test/package.json .github/tools/test/package-lock.json "$RUNNER_TEMP"
+          npm ci --prefix "$RUNNER_TEMP" --no-audit --no-fund
+          echo "$RUNNER_TEMP/node_modules/.bin" >> "$GITHUB_PATH"
       # The extension imports pi-tui from the repo's node_modules, the run node-pty and xterm.
       - name: Install the dev packages
         run: npm ci
@@ -69,7 +70,7 @@ jobs:
       - name: Run
         run: npm run e2e:pi
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: e2e-pi

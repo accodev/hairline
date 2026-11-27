@@ -30,7 +30,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-CI runs both on Claude Code 2.1.312 (Node 22). `main` requires the `check` status. Raise the pin only on purpose.
+CI runs both on the Claude Code build in `.github/tools/test/package.json` (2.1.312, Node 22). `main` requires the `check` status. Raise the pin only on purpose, because the mod API can change between releases: edit the version, then run `npm install --package-lock-only` in that folder. The same folder pins Pi for the e2e tests. `.github/tools/release` pins the build `publish.yml` tags with. CI installs each set with `npm ci` into `$RUNNER_TEMP`, outside the checkout, because `claude plugin validate` stops at 4096 files.
 
 ## Hooks
 
@@ -48,7 +48,7 @@ CI runs both on Claude Code 2.1.312 (Node 22). `main` requires the `check` statu
 - `pi/index.ts` is the Pi extension, loaded through `pi.extensions` in `package.json`. It replaces Pi's footer with `ctx.ui.setFooter`.
 - `pi/line.ts` draws the footer as text with SGR codes for the 16 palette slots. `pi/anim.ts` ports `readout.tsx` and `graph.tsx`. Both run under `node --test` without the Pi host.
 - A change to the line in `claude/` needs the same change in `pi/`, in the same PR. See Feature parity.
-- Pi tests live in `pi/tests.ts`. A `*.test.ts` name would make `claude plugin test` run them with the Claude Code test kit.
+- Pi tests live in `pi/tests.ts`. A `*.test.ts` name would make `claude plugin test` run them with the Claude Code test kit. Parsers of text from other programs (`refreshRateOf`, `modelLabel`, `readUsageLimits`, `readExtraBody`) also get fast-check property tests there. Add a dev dependency to `package.json` by hand: `npm install` reformats the file.
 - Check with `npm ci`, `npm run typecheck:pi` and `npm run test:pi`. CI runs them after the Claude Code steps.
 - Bump `version` in `package.json` on a behavior change of the Pi extension.
 
@@ -61,7 +61,7 @@ npm run e2e:claude
 npm run e2e:pi
 ```
 
-Screens land in `tests/e2e/out/`. The `e2e` workflow runs both on Linux for changes to `claude/`, `pi/`, `tests/e2e/` or the npm packages, with the pins of `ci.yml` and `package.json`.
+Screens land in `tests/e2e/out/`. The `e2e` workflow runs both on Linux for changes to `claude/`, `pi/`, `tests/e2e/` or the npm packages, with the builds in `.github/tools/test`.
 
 ## Types
 
@@ -69,7 +69,7 @@ Screens land in `tests/e2e/out/`. The `e2e` workflow runs both on Linux for chan
 
 ## Ship
 
-- Conventional Commits. One PR per change, CI green, rebase merge.
+- Conventional Commits. One PR per change, CI green, rebase merge. The `main` ruleset asks for 2 approvals; a repo admin merges with `gh pr merge --rebase --admin`, which works only through a PR.
 - Size each PR as a release and bump `version` in `plugin.json` and `package.json` in the same PR:
   - MAJOR: a breaking change, marked `!` in the type. Examples: a removed or renamed setting or key, a changed command, a raised `engines` or Pi peer range.
   - MINOR: `feat`, something users can see or do that is new.
@@ -77,6 +77,7 @@ Screens land in `tests/e2e/out/`. The `e2e` workflow runs both on Linux for chan
   - No bump: `docs`, `ci`, `test`, `chore` or `refactor` with no change users see.
 - Bump `package.json` with sed, plus the two `version` lines of `package-lock.json`: `npm version` reformats inline arrays.
 - The merge of a PR that raises the version runs `publish.yml`: it tags `hairline--v<version>` with `claude plugin tag --push`, creates the GitHub release and stages the version on npm. A maintainer approves the stage with 2FA on npmjs.com. Do not tag or release by hand.
+- Workflows pin each action to a commit SHA with the version in a comment, and give write permissions per job. Dependabot updates the pins and the npm packages; it leaves `.github/tools` alone. `scorecard.yml` publishes the OpenSSF Scorecard behind the README badge, and `codeql.yml` scans the TypeScript and the workflows.
 - Comments say why, never what.
 - README images come from `tests/screenshots.test.ts`, drawn by `scripts/screenshots.ts` with `node --experimental-strip-types`. The `screenshots` workflow renders them on `main` and pushes them to the `screenshots` branch.
 - Keep each file's line endings. Source files and `plugin.json` are CRLF. Other JSON and YAML files are LF.

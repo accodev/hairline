@@ -1,5 +1,12 @@
 # hairline
 
+[![npm](https://img.shields.io/npm/v/@accodev/hairline)](https://www.npmjs.com/package/@accodev/hairline)
+[![npm downloads](https://img.shields.io/npm/dm/@accodev/hairline)](https://www.npmjs.com/package/@accodev/hairline)
+[![ci](https://github.com/accodev/hairline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/accodev/hairline/actions/workflows/ci.yml)
+[![e2e](https://github.com/accodev/hairline/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/accodev/hairline/actions/workflows/e2e.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/accodev/hairline/badge)](https://scorecard.dev/viewer/?uri=github.com/accodev/hairline)
+[![license](https://img.shields.io/github/license/accodev/hairline)](LICENSE)
+
 hairline adds a status line under the prompt: a context bar over one row of facts about the session. It works in Claude Code and in [Pi](https://pi.dev).
 
 ![hairline](https://raw.githubusercontent.com/accodev/hairline/screenshots/line.png)
