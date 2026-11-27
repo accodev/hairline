@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { getSupportedThinkingLevels, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { copyToClipboard, getAgentDir, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent'
 import { isScrambling, lineText, newReadout, newGraph, scanPasses, scanStep, waitingText, setReadoutKind, readoutFrame, graphText, tickReadout, tickGraph } from './anim.ts'
-import { basename, counted, drawFooter, LAYOUTS, type Layout, MIDDLE_GRAPH_CELLS, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, readoutTarget, refreshRateOf, GRAPH_CELLS, type Stats, toolArg, toolName, type Tool, type View, worktreeOf } from './line.ts'
+import { basename, counted, drawFooter, LAYOUTS, type Layout, MIDDLE_GRAPH_CELLS, type Extra, type Hit, HOUR_MS, modelLabel, type Limit, type LimitStart, type Phase, readExtraBody, readUsageLimits, readoutTarget, refreshRateOf, GRAPH_CELLS, type Stats, toolArg, toolName, type Tool, trimSeparators, type View, worktreeOf } from './line.ts'
 
 const RATE_WINDOW_MS = 1_000
 const RATE_MIN_WINDOW_MS = 100 // the first chunks' rate, over at least this, so one chunk draws no spike
@@ -111,7 +111,7 @@ async function findNerdFont(): Promise<boolean> {
 // The working copy's top folder, which a worktree's .git file also marks. That file names the
 // worktree's git folder, which sits in the main checkout.
 function findRepo(cwd: string): { name: string; worktree: string | null } {
-  const parts = cwd.replace(/[\\/]+$/, '').split(/[\\/]/)
+  const parts = trimSeparators(cwd).split(/[\\/]/)
   for (let n = parts.length; n > 0; n--) {
     const top = parts.slice(0, n).join('/')
     if (!existsSync(`${top}/.git`)) continue

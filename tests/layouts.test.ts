@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { scanCells, type BarRun } from '../claude/bar.tsx'
-import { refreshRateOf, workspaceWidth, WORKSPACE_WIDTH } from '../claude/register.tsx'
+import { basename, modelLabel, refreshRateOf, trimSeparators, workspaceWidth, WORKSPACE_WIDTH, worktreeOf } from '../claude/register.tsx'
 
 // The one-row layouts: scan draws the activity as a light on the context bar, middle centers it
 // between the workspace and the limits. Both keep the percent on the bar, where the fill ends.
@@ -151,4 +151,43 @@ test('the refresh rate reads from Windows, macOS and xrandr output, the highest 
     ['Screen 0: minimum 320 x 200', null],
   ]
   for (const [output, hz] of cases) expect(refreshRateOf(output)).toBe(hz)
+})
+
+// CodeQL js/polynomial-redos: each input took quadratic time with the old regexes. 50,000 repeats
+// ran for seconds; linear code finishes in milliseconds and gives the old result.
+const LONG = 50_000
+const timed = <T>(run: () => T): { value: T; ms: number } => {
+  const start = Date.now()
+  const value = run()
+  return { value, ms: Date.now() - start }
+}
+const adversarial: [string, () => unknown, unknown][] = [
+  ['refreshRateOf on 9 repeated', () => refreshRateOf('9'.repeat(LONG) + 'x'), null],
+  ['refreshRateOf on digits and dots', () => refreshRateOf('1.'.repeat(LONG)), null],
+  ['modelLabel on [ repeated', () => modelLabel('claude-opus-5-5' + '['.repeat(LONG)), `opus 5.5${'['.repeat(LONG)}`],
+  ['basename on / repeated', () => basename('/'.repeat(LONG) + 'x'), 'x'],
+  ['basename on trailing / repeated', () => basename('a' + '/'.repeat(LONG) + 'b' + '/'.repeat(LONG)), 'b'],
+  ['worktreeOf on / repeated', () => worktreeOf('/'.repeat(LONG) + 'x', 'top'), { name: 'top', worktree: null }],
+]
+
+for (const [name, run, expected] of adversarial) {
+  test(`${name} finishes in linear time`, () => {
+    const { value, ms } = timed(run)
+    expect(value).toEqual(expected)
+    expect(ms).toBeLessThan(500)
+  })
+}
+
+test('the rewritten parsers keep their old results', () => {
+  expect(refreshRateOf('   2560x1440     59.95*+  143.97\n   1920x1080     60.00')).toBe(60)
+  expect(refreshRateOf('UI Looks like: 1512 x 982 @ 120.00Hz')).toBe(120)
+  expect(modelLabel('claude-opus-5-5[1m]')).toBe('opus 5.5')
+  expect(modelLabel('claude-haiku-5-5-20261001')).toBe('haiku 5.5')
+  expect(modelLabel('claude-x[a]b')).toBe('x[a]b')
+  expect(basename('C:\\code\\hairline\\')).toBe('hairline')
+  expect(trimSeparators('a/b//\\')).toBe('a/b')
+  expect(worktreeOf('C:/code/hairline/.git/worktrees/extra-usage/', 'C:/code/hairline/.claude/worktrees/extra-usage')).toEqual({ name: 'hairline', worktree: 'extra-usage' })
+  expect(worktreeOf('C:\\code\\hairline\\.git\\worktrees\\x', 'C:/w/x')).toEqual({ name: 'hairline', worktree: 'x' })
+  expect(worktreeOf('/.git/worktrees/x', '/w/x')).toEqual({ name: 'x', worktree: null })
+  expect(worktreeOf('/home/dev/app/.git/modules/lib', '/home/dev/app/lib')).toEqual({ name: 'lib', worktree: null })
 })
