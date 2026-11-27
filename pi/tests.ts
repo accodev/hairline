@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { visibleWidth } from '@earendil-works/pi-tui'
 import { frameText, newGraph, scanCells, SECONDS_WIDTH, sendingText, graphText, tickGraph, waitingText } from './anim.ts'
-import { cutWorkspace, drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, READOUT_WIDTH, readoutTarget, TOOL_WIDTH, toolArg, toolReadout, type View, worktreeOf } from './line.ts'
+import { cutWorkspace, drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, READOUT_WIDTH, readoutTarget, refreshRateOf, TOOL_WIDTH, toolArg, toolReadout, type View, worktreeOf } from './line.ts'
 
 const chr = String.fromCharCode(27)
 const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '')
@@ -358,4 +358,17 @@ test('the extension draws the footer from Pi events', async () => {
   assert.equal(thinking, 'low')
   footer!.dispose()
   await emit('session_shutdown', { reason: 'quit' })
+})
+
+test('the refresh rate reads from Windows, macOS and xrandr output, the highest display winning', () => {
+  const cases: [string, number | null][] = [
+    ['119\r\n\r\n', 119],
+    ['60\r\n144\r\n', 144],
+    ['UI Looks like: 1512 x 982 @ 120.00Hz', 120],
+    ['Display Type: Built-in Liquid Retina XDR Display\n  ProMotion', 120],
+    ['   2560x1440     59.95*+  143.97\n   1920x1080     60.00', 60],
+    ['', null],
+    ['Screen 0: minimum 320 x 200', null],
+  ]
+  for (const [output, hz] of cases) assert.equal(refreshRateOf(output), hz)
 })

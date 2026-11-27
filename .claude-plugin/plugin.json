@@ -1,6 +1,6 @@
 {
   "name": "hairline",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "MIT",
   "description": "A status line mod for Claude Code.",
   "hooks": "./claude/hooks.json",
@@ -37,9 +37,9 @@
     },
     "animationFps": {
       "type": "number",
-      "title": "Dot line frames per second",
-      "description": "How often the speed dot line moves while Claude streams, 1 to 60. Lower values use less CPU.",
-      "default": 30
+      "title": "Animation frames per second",
+      "description": "How often the scan and the dot line move, 1 to 240. 0 matches the display's refresh rate. Lower values use less CPU.",
+      "default": 0
     }
   }
 }

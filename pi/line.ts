@@ -19,6 +19,16 @@ export const GRAPH_CELLS = TOKEN_SPLIT_WIDTH - 2 - READOUT_WIDTH - 1
 // The first column: the repository over the context, cut with an ellipsis past this width.
 export const WORKSPACE_WIDTH = 52
 
+// The display's refresh rate as a command prints it: Windows a bare number per graphics card,
+// macOS "@ 120.00Hz" or "ProMotion", Linux xrandr's current mode marked "*". The highest wins, so
+// a 120 Hz panel beside a 60 Hz one animates at 120.
+export function refreshRateOf(output: string): number | null {
+  const rates = [...output.matchAll(/(\d+(?:\.\d+)?)\s*(?:Hz\b|\*)|^\s*(\d+)\s*$/gim)].map(m => Number(m[1] ?? m[2]))
+  if (/ProMotion/i.test(output)) rates.push(120)
+  const valid = rates.filter(n => n >= 24 && n <= 500)
+  return valid.length ? Math.round(Math.max(...valid)) : null
+}
+
 // Half the row: the limits, the model and the session ID take some 45 cells, so a wide terminal
 // spends its room on the names.
 export function workspaceWidth(rowCells: number): number {

@@ -16,7 +16,8 @@ const IDLE_REFRESH_MS = 60_000
 const RATE_WINDOW_MS = 1_000
 const RATE_WARMUP_MS = 1_000
 const HINT_REDRAWS_MAX = 30 // Claude Code folds hint-line redraws past 30 a second
-const FRAMES_MAX = 60 // surfaces paint about 60 frames a second
+const FRAMES_MAX = 240 // the fastest common panel; animationFps 0 matches the display
+const FRAMES_FALLBACK = 60 // when no command reports the display's refresh rate
 const RATIO_MIN_TOKENS = 20 // shorter responses give a noisy characters-per-token ratio
 const RATIO_MIN = 2
 const RATIO_MAX = 6
@@ -164,7 +165,10 @@ let charsPerToken = 4 // the usual English ratio, until the first response measu
 export const LAYOUTS = ['scan', 'middle'] as const
 export type Layout = (typeof LAYOUTS)[number]
 type Settings = { currency: string; usdRate: number; cacheTtlMinutes: number; refreshPerSecond: number; frameRate: number; layout: Layout }
-let settings: Settings = { currency: 'EUR', usdRate: 0.9, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 30, layout: 'scan' }
+let settings: Settings = { currency: 'EUR', usdRate: 0.9, cacheTtlMinutes: 60, refreshPerSecond: HINT_REDRAWS_MAX, frameRate: 0, layout: 'scan' }
+// The display's refresh rate, read once per load: frameRate 0 animates at it.
+let displayHz = FRAMES_FALLBACK
+const frameMs = () => Math.round(1000 / (settings.frameRate || displayHz))
 
 // Set once a day: the ECB publishes one rate per working day.
 let exchange: { currency: string; rate: number; fetchedOn: string } | null = null
@@ -186,12 +190,40 @@ function readSettings(options: PluginOptions): Settings {
     usdRate: rate > 0 ? rate : 0.9,
     cacheTtlMinutes: ttl > 0 ? ttl : 60,
     refreshPerSecond: refresh > 0 ? Math.min(HINT_REDRAWS_MAX, Math.max(1, refresh)) : HINT_REDRAWS_MAX,
-    frameRate: frames > 0 ? Math.min(FRAMES_MAX, Math.max(1, frames)) : 30,
+    frameRate: frames > 0 ? Math.min(FRAMES_MAX, Math.max(1, frames)) : 0,
     layout: (LAYOUTS as readonly string[]).includes(String(options.layout)) ? (String(options.layout) as Layout) : 'scan',
   }
 }
 
 const redraw = ($: EngineInterface) => $.ui.invalidate('ui.render')
+// The display's refresh rate as a command prints it: Windows a bare number per graphics card,
+// macOS "@ 120.00Hz" or "ProMotion", Linux xrandr's current mode marked "*". The highest wins, so
+// a 120 Hz panel beside a 60 Hz one animates at 120.
+export function refreshRateOf(output: string): number | null {
+  const rates = [...output.matchAll(/(\d+(?:\.\d+)?)\s*(?:Hz\b|\*)|^\s*(\d+)\s*$/gim)].map(m => Number(m[1] ?? m[2]))
+  if (/ProMotion/i.test(output)) rates.push(120)
+  const valid = rates.filter(n => n >= 24 && n <= 500)
+  return valid.length ? Math.round(Math.max(...valid)) : null
+}
+
+// One command per system; a failed or silent one falls through to the next, then to 60.
+async function readDisplayHz($: EngineInterface): Promise<void> {
+  const isWindows = Boolean(await $.env.get('WINDIR').catch(() => undefined))
+  const commands = isWindows
+    ? [['powershell', '-NoProfile', '-Command', '(Get-CimInstance Win32_VideoController).CurrentRefreshRate']]
+    : [['system_profiler', 'SPDisplaysDataType'], ['xrandr', '--current']]
+  for (const command of commands) {
+    try {
+      const out = await $.process.run(command, { timeoutMs: 5_000 })
+      const hz = out.exitCode === 0 ? refreshRateOf(out.stdout) : null
+      if (hz) {
+        displayHz = Math.min(FRAMES_MAX, hz)
+        redraw($)
+        return
+      }
+    } catch {}
+  }
+}
 const counted = (s: Stats) => s.input + s.write + s.read + s.output // every token in and out, as ccstatusline's Tokens Total counts them
 
 function severity(c: Palette, pct: number): string {
@@ -634,6 +666,7 @@ async function load($: EngineInterface): Promise<void> {
   void readExchange($)
   void readExtra($)
   void readCompactAt($)
+  void readDisplayHz($)
   const saving = restore($).then(saved => {
     if (saved?.stats && counted(saved.stats) > counted(session.stats)) session.stats = { ...emptyStats(), ...saved.stats }
     return saved
@@ -864,7 +897,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       {isDesktop ? <Box width={3} overflow="hidden"><Phase /></Box> : <Phase />}
       {/* The number first, padded on its left: the bar ends the group, with only the separator after it. */}
       {Client ? (
-        <Client key="hairline-readout" module="./readout.tsx" props={{ text: readoutText, kind: session.phase, bright: session.phase === 'receiving' ? readoutWidth - 4 : isToolShown ? columnTool.bright : 0, frameMs: Math.round(1000 / settings.frameRate), sentAt: session.sentAt, mono: isDesktop }} />
+        <Client key="hairline-readout" module="./readout.tsx" props={{ text: readoutText, kind: session.phase, bright: session.phase === 'receiving' ? readoutWidth - 4 : isToolShown ? columnTool.bright : 0, frameMs: frameMs(), sentAt: session.sentAt, mono: isDesktop }} />
       ) : isToolShown ? <Text dimColor>{readoutText}</Text> : session.phase === 'receiving' ? (
         <Box>
           <Text>{pad(String(Math.min(TPS_MAX, session.readoutTps)), readoutWidth - 4)}</Text>
@@ -873,7 +906,7 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
       ) : <Text dimColor>{pad(PHASE_WORDS[session.phase], readoutWidth)}</Text>}
       {Client && !isToolShown && <Text> </Text>}
       {Client && !isToolShown && (
-        <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: Math.round(1000 / settings.frameRate), mono: isDesktop, ...(isDesktop ? {} : { cells: isWaitingWide ? graphCells - SECONDS_WIDTH : graphCells, scan: true }) }} />
+        <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, sweep: session.phase === 'sending', color: c.folder, frameMs: frameMs(), mono: isDesktop, ...(isDesktop ? {} : { cells: isWaitingWide ? graphCells - SECONDS_WIDTH : graphCells, scan: true }) }} />
       )}
     </Box>
   )
@@ -999,13 +1032,12 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
     }
     return joinRuns(cells, '', 0)
   })()
-  const frameMs = Math.round(1000 / settings.frameRate)
   const phaseScan = session.phase === 'idle' ? null : c.scan[session.phase]
   // A reply crosses the bar once a second at 80 t/s; thinking and a tool have no rate, so a steady pace.
   const passes = session.phase === 'receiving' ? Math.max(0.2, tokensPerSecond / SCAN_TPS_PER_PASS) : session.phase === 'sending' ? 0.5 : 0.7
   // The scan runs in the terminal's Client; other surfaces draw the bar still.
   const barRow = settings.layout === 'scan' && Client && e.surface === 'terminal' ? (
-    <Client key="hairline-bar" module="./bar.tsx" props={{ runs: barRuns, frameMs, ...(phaseScan ? { scan: { ...phaseScan, passes } } : {}) }} />
+    <Client key="hairline-bar" module="./bar.tsx" props={{ runs: barRuns, frameMs: frameMs(), ...(phaseScan ? { scan: { ...phaseScan, passes } } : {}) }} />
   ) : (
     <Box width="100%" overflow="hidden" flexWrap="nowrap">
       {barRuns.map((run, i) => run.color
@@ -1045,14 +1077,14 @@ async function drawLine($: EngineInterface, e: RenderInput<'PromptHint' | 'Above
   const centerActivity = session.phase === 'sending' ? (
     <Box flexShrink={0}>
       <Text color={c.thinking}>✻ thinking </Text>
-      {Client && <Client key="hairline-readout" module="./readout.tsx" props={{ text: ' '.repeat(SECONDS_WIDTH), kind: 'sending', bright: SECONDS_WIDTH, frameMs, sentAt: session.sentAt }} />}
+      {Client && <Client key="hairline-readout" module="./readout.tsx" props={{ text: ' '.repeat(SECONDS_WIDTH), kind: 'sending', bright: SECONDS_WIDTH, frameMs: frameMs(), sentAt: session.sentAt }} />}
     </Box>
   ) : session.phase === 'receiving' ? (
     <Box flexShrink={0}>
       <Text color={c.ok}>↓ </Text>
       <Text>{String(Math.min(TPS_MAX, session.readoutTps))}</Text>
       <Text dimColor> t/s </Text>
-      {Client && <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs, cells: MIDDLE_GRAPH_CELLS, line: true }} />}
+      {Client && <Client key="hairline-graph" module="./graph.tsx" props={{ rate: tokensPerSecond, live: session.streaming, color: c.folder, frameMs: frameMs(), cells: MIDDLE_GRAPH_CELLS, line: true }} />}
     </Box>
   ) : session.phase === 'tool' ? (
     <Box flexShrink={0}>

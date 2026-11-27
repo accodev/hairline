@@ -90,7 +90,7 @@ Claude Code keeps them in `settings.json`, under `pluginConfigs["hairline@hairli
 | `usdRate` | `0.9` | Value of 1 US dollar in that currency, when the exchange rate cannot be fetched. |
 | `cacheTtlMinutes` | `60` | Prompt cache lifetime: 60 or 5, as your plan uses. |
 | `speedRefreshPerSecond` | `30` | Updates of the tokens per second figure, 1 to 30. |
-| `animationFps` | `30` | Frames per second of the scan and the dot line, 1 to 60. |
+| `animationFps` | `0` | Frames per second of the scan and the dot line, 1 to 240. `0` matches the display's refresh rate, or 60 when the system does not report it. |
 
 ## Fonts and the desktop app
 
