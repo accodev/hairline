@@ -422,6 +422,8 @@ const adversarial: [string, () => unknown, unknown][] = [
   ['basename on / repeated', () => basename('/'.repeat(LONG) + 'x'), 'x'],
   ['basename on trailing / repeated', () => basename('a' + '/'.repeat(LONG) + 'b' + '/'.repeat(LONG)), 'b'],
   ['worktreeOf on / repeated', () => worktreeOf('/'.repeat(LONG) + 'x', 'top'), { name: 'top', worktree: null }],
+  ['refreshRateOf on blanks repeated', () => refreshRateOf('1' + ' '.repeat(LONG) + 'x'), null],
+  ['refreshRateOf on numbers and blanks repeated', () => refreshRateOf('1 '.repeat(LONG)), null],
 ]
 
 for (const [name, run, expected] of adversarial) {

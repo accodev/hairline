@@ -201,14 +201,15 @@ const redraw = ($: EngineInterface) => $.ui.invalidate('ui.render')
 // a 120 Hz panel beside a 60 Hz one animates at 120.
 export function refreshRateOf(output: string): number | null {
   const rates: number[] = []
-  // Each regex below starts once per number and never twice in one digit run, so a long run of
-  // digits costs linear time: the old single regex was quadratic on "999...".
-  const unit = /\s*(?:Hz\b|\*)/iy
+  // The number regex starts once per number and never twice in one digit run, and a loop skips the
+  // blanks after it: the old single regex was quadratic on "999..." and on long runs of blanks.
   for (const line of output.split(/\r?\n/)) {
     if (/^\d+$/.test(line.trim())) rates.push(Number(line.trim()))
     for (const m of line.matchAll(/\d+(?:\.\d+)?/g)) {
-      unit.lastIndex = m.index + m[0].length
-      if (unit.test(line)) rates.push(Number(m[0]))
+      let i = m.index + m[0].length
+      while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i++
+      const mark = line.slice(i, i + 3)
+      if (mark[0] === '*' || /^hz(?![a-z0-9_])/i.test(mark)) rates.push(Number(m[0]))
     }
   }
   if (/ProMotion/i.test(output)) rates.push(120)
