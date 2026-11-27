@@ -12,24 +12,23 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # The mod API can change between releases: pin the Claude Code version the mod was tested on, and raise it on purpose.
-  CLAUDE_CODE_VERSION: 2.1.312
-
 jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
+      # From the lockfile in .github/tools/test, pinned by hash. Installed outside the checkout: claude plugin validate counts the plugin's files.
       - name: Install Claude Code
-        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-
+        run: |
+          cp .github/tools/test/package.json .github/tools/test/package-lock.json "$RUNNER_TEMP"
+          npm ci --prefix "$RUNNER_TEMP" --no-audit --no-fund
+          echo "$RUNNER_TEMP/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Validate the plugin and its marketplace
         run: claude plugin validate .
 

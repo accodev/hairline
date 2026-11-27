@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "description": "The Claude Code and Pi builds CI tests the mod and the extension on. npm ci installs them from the lockfile, pinned by hash. Raise a version only on purpose: the mod API can change between releases.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.312",
+    "@earendil-works/pi-coding-agent": "1.5.0"
+  }
+}

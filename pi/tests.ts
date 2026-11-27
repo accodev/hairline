@@ -1,6 +1,7 @@
 // Not named *.test.ts: `claude plugin test` would run it with the Claude Code test kit.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import fc from 'fast-check'
 import { visibleWidth } from '@earendil-works/pi-tui'
 import { frameText, newGraph, scanCells, SECONDS_WIDTH, sendingText, graphText, tickGraph, waitingText } from './anim.ts'
 import { cutWorkspace, drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, READOUT_WIDTH, readoutTarget, refreshRateOf, TOOL_WIDTH, toolArg, toolReadout, type View, worktreeOf } from './line.ts'
@@ -371,4 +372,37 @@ test('the refresh rate reads from Windows, macOS and xrandr output, the highest 
     ['Screen 0: minimum 320 x 200', null],
   ]
   for (const [output, hz] of cases) assert.equal(refreshRateOf(output), hz)
+})
+
+// The refresh rate, the model ID and the usage response come from other programs: random input must
+// neither throw nor give a value the line cannot draw.
+test('refreshRateOf on random text: null or a whole rate from 24 to 500', () => {
+  fc.assert(fc.property(fc.string({ unit: 'binary', maxLength: 300 }), (output) => {
+    const hz = refreshRateOf(output)
+    if (hz !== null) assert.ok(Number.isInteger(hz) && hz >= 24 && hz <= 500, String(hz))
+  }))
+})
+
+test('refreshRateOf picks the highest rate of a Windows list, one card a line', () => {
+  fc.assert(fc.property(fc.array(fc.integer({ min: 24, max: 500 }), { minLength: 1, maxLength: 4 }), (rates) => {
+    assert.equal(refreshRateOf(rates.join('\r\n') + '\r\n'), Math.max(...rates))
+  }))
+})
+
+test('modelLabel names claude-<family>-<major>-<minor> as "<family> <major>.<minor>", with or without a date and [1m]', () => {
+  const family = fc.stringMatching(/^[a-z]{1,8}$/)
+  const date = fc.option(fc.integer({ min: 20240101, max: 20291231 }).map((d) => `-${d}`), { nil: '' })
+  const window = fc.constantFrom('', '[1m]')
+  fc.assert(fc.property(family, fc.nat(9), fc.nat(9), date, window, (f, major, minor, d, w) => {
+    assert.equal(modelLabel(`claude-${f}-${major}-${minor}${d}${w}`), `${f} ${major}.${minor}`)
+  }))
+})
+
+test('readUsageLimits and readExtraBody on random JSON objects: no throw, only numbers the line can draw', () => {
+  fc.assert(fc.property(fc.object(), (body) => {
+    const text = JSON.stringify(body)
+    for (const limit of readUsageLimits(text)) assert.equal(typeof limit.percentUsed, 'number')
+    const extra = readExtraBody(text)
+    if (extra) assert.ok(extra.limit > 0 && typeof extra.used === 'number' && typeof extra.currency === 'string')
+  }))
 })

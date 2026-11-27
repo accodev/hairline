@@ -10,13 +10,12 @@ on:
   # Retries a run that failed after the tag or the release: each step skips what already exists.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: publish
   cancel-in-progress: false
-
-env:
-  # The first build checked to have `claude plugin tag`; the test pin in ci.yml is older.
-  CLAUDE_CODE_VERSION: 2.1.332
 
 jobs:
   release:
@@ -27,11 +26,11 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
@@ -46,9 +45,12 @@ jobs:
           fi
           echo "version=$plugin" >> "$GITHUB_OUTPUT"
 
+      # From the lockfile in .github/tools/release, pinned by hash. Installed outside the checkout: claude plugin validate counts the plugin's files.
       - name: Install Claude Code
-        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-
+        run: |
+          cp .github/tools/release/package.json .github/tools/release/package-lock.json "$RUNNER_TEMP"
+          npm ci --prefix "$RUNNER_TEMP" --no-audit --no-fund
+          echo "$RUNNER_TEMP/node_modules/.bin" >> "$GITHUB_PATH"
       # claude plugin tag checks that plugin.json and the marketplace entry agree before it tags.
       - name: Tag unless the tag exists
         env:
@@ -84,16 +86,13 @@ jobs:
       # npm trusted publishing trades the workflow's OIDC token for a publish token: no NPM_TOKEN secret to leak.
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          # Node 24 ships npm 11.19, and staged publishing needs npm 11.15.0 or later.
+          node-version: 24
           registry-url: https://registry.npmjs.org
-
-      # Staged publishing needs npm 11.15.0 or later; Node 22 ships npm 10.
-      - name: Update npm
-        run: npm install --global npm@^11.15.0
 
       - name: Install the Pi extension's dev packages
         run: npm ci

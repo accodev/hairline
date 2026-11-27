@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Claude Code 2.1.332 for publish.yml, the first build checked to have claude plugin tag. npm ci installs it from the lockfile, pinned by hash.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.332"
+  }
+}
