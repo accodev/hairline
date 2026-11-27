@@ -200,7 +200,17 @@ const redraw = ($: EngineInterface) => $.ui.invalidate('ui.render')
 // macOS "@ 120.00Hz" or "ProMotion", Linux xrandr's current mode marked "*". The highest wins, so
 // a 120 Hz panel beside a 60 Hz one animates at 120.
 export function refreshRateOf(output: string): number | null {
-  const rates = [...output.matchAll(/(\d+(?:\.\d+)?)\s*(?:Hz\b|\*)|^\s*(\d+)\s*$/gim)].map(m => Number(m[1] ?? m[2]))
+  const rates: number[] = []
+  // Each regex below starts once per number and never twice in one digit run, so a long run of
+  // digits costs linear time: the old single regex was quadratic on "999...".
+  const unit = /\s*(?:Hz\b|\*)/iy
+  for (const line of output.split(/\r?\n/)) {
+    if (/^\d+$/.test(line.trim())) rates.push(Number(line.trim()))
+    for (const m of line.matchAll(/\d+(?:\.\d+)?/g)) {
+      unit.lastIndex = m.index + m[0].length
+      if (unit.test(line)) rates.push(Number(m[0]))
+    }
+  }
   if (/ProMotion/i.test(output)) rates.push(120)
   const valid = rates.filter(n => n >= 24 && n <= 500)
   return valid.length ? Math.round(Math.max(...valid)) : null
@@ -392,8 +402,11 @@ function amount(value: number, currency: string): string {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: 2 }).format(value)
 }
 
-function modelLabel(id: string): string {
-  const [family, ...version] = id.replace(/^claude-/, '').replace(/\[.*\]$/, '').replace(/-\d{8}$/, '').split('-')
+export function modelLabel(id: string): string {
+  // An ID ending in "]" loses all from its first "[", as "[1m]". indexOf: /\[.*\]$/ is quadratic on "[[[...".
+  const bare = id.replace(/^claude-/, '')
+  const open = bare.indexOf('[')
+  const [family, ...version] = (open >= 0 && bare.endsWith(']') ? bare.slice(0, open) : bare).replace(/-\d{8}$/, '').split('-')
   return version.length ? `${family} ${version.join('.')}` : family ?? id
 }
 
@@ -424,8 +437,16 @@ export function toolReadout(tools: { name: string; arg: string }[], width: numbe
   return { text, bright: Math.min(head ? head.length - 1 : first.name.length, width) }
 }
 
-function basename(path: string): string {
-  return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+// A path without its trailing separators. A loop: the regex /[\\/]+$/ restarts at every separator
+// of a long run, which is quadratic.
+export function trimSeparators(path: string): string {
+  let end = path.length
+  while (end > 0 && (path[end - 1] === '/' || path[end - 1] === '\\')) end--
+  return path.slice(0, end)
+}
+
+export function basename(path: string): string {
+  return trimSeparators(path).split(/[\\/]/).pop() || path
 }
 
 // /reload-plugins clears the module, and no engine call reports these values again.
@@ -548,7 +569,7 @@ let repo: Repo | null = null
 let repoCwd = ''
 
 async function findRepo($: EngineInterface, cwd: string): Promise<Repo> {
-  const parts = cwd.replace(/[\\/]+$/, '').split(/[\\/]/)
+  const parts = trimSeparators(cwd).split(/[\\/]/)
   for (let n = parts.length; n > 0; n--) {
     const top = parts.slice(0, n).join('/')
     const stat = await $.fs.stat(`${top}/.git`).catch(() => null)
@@ -583,8 +604,11 @@ function cutWorkspace(folder: string, worktree: string | null, branch: string | 
 
 // A linked worktree's git folder is <main checkout>/.git/worktrees/<id>, so the main checkout names
 // the repository. A submodule's is .git/modules/<name>, and it stays a repository of its own.
-function worktreeOf(gitDir: string, top: string): { name: string; worktree: string | null } {
-  const main = gitDir.match(/^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/)?.[1]
+export function worktreeOf(gitDir: string, top: string): { name: string; worktree: string | null } {
+  // Parts: the old /^(.*)[\\/]\.git.../ regex backtracked once per separator.
+  const parts = trimSeparators(gitDir).split(/[\\/]/)
+  const n = parts.length
+  const main = n >= 4 && parts[n - 3] === '.git' && parts[n - 2] === 'worktrees' ? parts.slice(0, n - 3).join('/') : ''
   return main ? { name: basename(main), worktree: basename(top) } : { name: basename(top), worktree: null }
 }
 

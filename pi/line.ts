@@ -23,7 +23,17 @@ export const WORKSPACE_WIDTH = 52
 // macOS "@ 120.00Hz" or "ProMotion", Linux xrandr's current mode marked "*". The highest wins, so
 // a 120 Hz panel beside a 60 Hz one animates at 120.
 export function refreshRateOf(output: string): number | null {
-  const rates = [...output.matchAll(/(\d+(?:\.\d+)?)\s*(?:Hz\b|\*)|^\s*(\d+)\s*$/gim)].map(m => Number(m[1] ?? m[2]))
+  const rates: number[] = []
+  // Each regex below starts once per number and never twice in one digit run, so a long run of
+  // digits costs linear time: the old single regex was quadratic on "999...".
+  const unit = /\s*(?:Hz\b|\*)/iy
+  for (const line of output.split(/\r?\n/)) {
+    if (/^\d+$/.test(line.trim())) rates.push(Number(line.trim()))
+    for (const m of line.matchAll(/\d+(?:\.\d+)?/g)) {
+      unit.lastIndex = m.index + m[0].length
+      if (unit.test(line)) rates.push(Number(m[0]))
+    }
+  }
   if (/ProMotion/i.test(output)) rates.push(120)
   const valid = rates.filter(n => n >= 24 && n <= 500)
   return valid.length ? Math.round(Math.max(...valid)) : null
@@ -185,12 +195,23 @@ export function duration(ms: number): string {
 }
 
 export function modelLabel(id: string): string {
-  const [family, ...version] = id.replace(/^claude-/, '').replace(/\[.*\]$/, '').replace(/-\d{8}$/, '').split('-')
+  // An ID ending in "]" loses all from its first "[", as "[1m]". indexOf: /\[.*\]$/ is quadratic on "[[[...".
+  const bare = id.replace(/^claude-/, '')
+  const open = bare.indexOf('[')
+  const [family, ...version] = (open >= 0 && bare.endsWith(']') ? bare.slice(0, open) : bare).replace(/-\d{8}$/, '').split('-')
   return version.length ? `${family} ${version.join('.')}` : family ?? id
 }
 
+// A path without its trailing separators. A loop: the regex /[\\/]+$/ restarts at every separator
+// of a long run, which is quadratic.
+export function trimSeparators(path: string): string {
+  let end = path.length
+  while (end > 0 && (path[end - 1] === '/' || path[end - 1] === '\\')) end--
+  return path.slice(0, end)
+}
+
 export function basename(path: string): string {
-  return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
+  return trimSeparators(path).split(/[\\/]/).pop() || path
 }
 
 // The argument that says most about a call. Pi's built-in tools and Claude Code's share these keys.
@@ -291,9 +312,11 @@ function hoverable(text: string, action: string | undefined, v: View): string {
 // A linked worktree's git folder is <main checkout>/.git/worktrees/<id>, so the main checkout names
 // the repository. A submodule's is .git/modules/<name>, and it stays a repository of its own.
 export function worktreeOf(gitDir: string, top: string): { name: string; worktree: string | null } {
-  const base = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p
-  const main = gitDir.match(/^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/)?.[1]
-  return main ? { name: base(main), worktree: base(top) } : { name: base(top), worktree: null }
+  // Parts: the old /^(.*)[\\/]\.git.../ regex backtracked once per separator.
+  const parts = trimSeparators(gitDir).split(/[\\/]/)
+  const n = parts.length
+  const main = n >= 4 && parts[n - 3] === '.git' && parts[n - 2] === 'worktrees' ? parts.slice(0, n - 3).join('/') : ''
+  return main ? { name: basename(main), worktree: basename(top) } : { name: basename(top), worktree: null }
 }
 
 // The worktree and the branch cut to fit the column with the repository, the parentheses, the

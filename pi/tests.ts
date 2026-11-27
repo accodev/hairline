@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import fc from 'fast-check'
 import { visibleWidth } from '@earendil-works/pi-tui'
 import { frameText, newGraph, scanCells, SECONDS_WIDTH, sendingText, graphText, tickGraph, waitingText } from './anim.ts'
-import { cutWorkspace, drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, READOUT_WIDTH, readoutTarget, refreshRateOf, TOOL_WIDTH, toolArg, toolReadout, type View, worktreeOf } from './line.ts'
+import { basename, cutWorkspace, drawFooter, duration, human, modelLabel, readExtraBody, readUsageLimits, READOUT_WIDTH, readoutTarget, refreshRateOf, TOOL_WIDTH, toolArg, toolReadout, trimSeparators, type View, worktreeOf } from './line.ts'
 
 const chr = String.fromCharCode(27)
 const plain = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '')
@@ -404,5 +404,87 @@ test('readUsageLimits and readExtraBody on random JSON objects: no throw, only n
     for (const limit of readUsageLimits(text)) assert.equal(typeof limit.percentUsed, 'number')
     const extra = readExtraBody(text)
     if (extra) assert.ok(extra.limit > 0 && typeof extra.used === 'number' && typeof extra.currency === 'string')
+  }))
+})
+
+// CodeQL js/polynomial-redos: each input took quadratic time with the old regexes. 50,000 repeats
+// ran for seconds; linear code finishes in milliseconds and gives the old result.
+const LONG = 50_000
+const timed = <T>(run: () => T): { value: T; ms: number } => {
+  const start = Date.now()
+  const value = run()
+  return { value, ms: Date.now() - start }
+}
+const adversarial: [string, () => unknown, unknown][] = [
+  ['refreshRateOf on 9 repeated', () => refreshRateOf('9'.repeat(LONG) + 'x'), null],
+  ['refreshRateOf on digits and dots', () => refreshRateOf('1.'.repeat(LONG)), null],
+  ['modelLabel on [ repeated', () => modelLabel('claude-opus-5-5' + '['.repeat(LONG)), `opus 5.5${'['.repeat(LONG)}`],
+  ['basename on / repeated', () => basename('/'.repeat(LONG) + 'x'), 'x'],
+  ['basename on trailing / repeated', () => basename('a' + '/'.repeat(LONG) + 'b' + '/'.repeat(LONG)), 'b'],
+  ['worktreeOf on / repeated', () => worktreeOf('/'.repeat(LONG) + 'x', 'top'), { name: 'top', worktree: null }],
+]
+
+for (const [name, run, expected] of adversarial) {
+  test(`${name} finishes in linear time`, () => {
+    const { value, ms } = timed(run)
+    assert.deepEqual(value, expected)
+    assert.ok(ms < 500, `${ms} ms`)
+  })
+}
+
+test('the rewritten parsers keep their old results', () => {
+  assert.equal(refreshRateOf('   2560x1440     59.95*+  143.97\n   1920x1080     60.00'), 60)
+  assert.equal(refreshRateOf('UI Looks like: 1512 x 982 @ 120.00Hz'), 120)
+  assert.equal(modelLabel('claude-opus-5-5[1m]'), 'opus 5.5')
+  assert.equal(modelLabel('claude-haiku-5-5-20261001'), 'haiku 5.5')
+  assert.equal(modelLabel('claude-x[a]b'), 'x[a]b')
+  assert.equal(basename('C:\\code\\hairline\\'), 'hairline')
+  assert.equal(trimSeparators('a/b//\\'), 'a/b')
+  assert.deepEqual(worktreeOf('C:/code/hairline/.git/worktrees/extra-usage/', 'C:/code/hairline/.claude/worktrees/extra-usage'), { name: 'hairline', worktree: 'extra-usage' })
+  assert.deepEqual(worktreeOf('C:\\code\\hairline\\.git\\worktrees\\x', 'C:/w/x'), { name: 'hairline', worktree: 'x' })
+  assert.deepEqual(worktreeOf('/.git/worktrees/x', '/w/x'), { name: 'x', worktree: null })
+  assert.deepEqual(worktreeOf('/home/dev/app/.git/modules/lib', '/home/dev/app/lib'), { name: 'lib', worktree: null })
+})
+
+// The old regexes as the reference: on short random paths and IDs the new code gives what they gave.
+const pathChars = fc.constantFrom('a', 'b', '/', '\\', '.git', 'worktrees', '[', ']', '-')
+const shortText = fc.array(pathChars, { maxLength: 12 }).map((p) => p.join(''))
+
+test('basename and trimSeparators match the old regex on random paths', () => {
+  fc.assert(fc.property(shortText, (p) => {
+    assert.equal(trimSeparators(p), p.replace(/[\\/]+$/, ''))
+    assert.equal(basename(p), p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p)
+  }))
+})
+
+test('worktreeOf matches the old regex on random git folders', () => {
+  const oldMain = (g: string) => g.match(/^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/)?.[1]
+  fc.assert(fc.property(shortText, (g) => {
+    // The old regex kept at most one trailing separator; trimming more is the new reading.
+    if (/[\\/]{2,}$/.test(g)) return
+    const was = oldMain(g)
+    assert.equal(worktreeOf(g, '/top/w').worktree !== null, Boolean(was && basename(was)), g)
+  }))
+})
+
+test('modelLabel matches the old regex on random IDs', () => {
+  fc.assert(fc.property(shortText, (rest) => {
+    const id = `claude-${rest}`
+    const [family, ...version] = id.replace(/^claude-/, '').replace(/\[.*\]$/, '').replace(/-\d{8}$/, '').split('-')
+    assert.equal(modelLabel(id), version.length ? `${family} ${version.join('.')}` : family ?? id)
+  }))
+})
+
+test('refreshRateOf matches the old regex on random display output', () => {
+  const token = fc.constantFrom('60', '120', '59.95', '143.97', '*', '+', 'Hz', ' ', '\n', 'x', '@ ', '.')
+  const old = (o: string) => {
+    const rates = [...o.matchAll(/(\d+(?:\.\d+)?)\s*(?:Hz\b|\*)|^\s*(\d+)\s*$/gim)].map((m) => Number(m[1] ?? m[2])).filter((n) => n >= 24 && n <= 500)
+    return rates.length ? Math.round(Math.max(...rates)) : null
+  }
+  // Tokens apart: glued numbers such as 143.9759.95 split in other places, and no display prints them.
+  fc.assert(fc.property(fc.array(token, { maxLength: 16 }).map((t) => t.join(' ')), (o) => {
+    // The old \s* crossed lines: "60\n*" read as 60. xrandr prints the mark on the rate's own line.
+    if (/\d\s*\n\s*(?:\*|Hz)/i.test(o)) return
+    assert.equal(refreshRateOf(o), old(o), JSON.stringify(o))
   }))
 })
